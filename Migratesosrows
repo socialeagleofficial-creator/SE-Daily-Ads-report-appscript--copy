@@ -1,0 +1,122 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// MigrateSosRows.gs
+// Run ONCE to split every "SOS" row into "SOS Call Booking" + "SOS Forms"
+// across all date blocks in the active sheet tab.
+//
+// WHAT IT DOES:
+//   1. Scans every row in the sheet from bottom to top
+//   2. Finds rows where Col B = "SOS" (exact match, case-insensitive)
+//   3. Renames that row to "SOS Call Booking"
+//   4. Inserts a new "SOS Forms" row immediately after it (empty data)
+//
+// WHAT IT DOES NOT TOUCH:
+//   - "SOS MS" rows (left unchanged)
+//   - Any row that already says "SOS Call Booking" or "SOS Forms"
+//   - Summary table rows (rows 1-14 are skipped)
+//   - Any data columns — only Col B label changes
+//
+// HOW TO USE:
+//   1. Open Apps Script in SE - Daily Ads Report
+//   2. Paste this as a new file: MigrateSosRows.gs
+//   3. Select migrateSosRows → Run
+//   4. Then run updateAutoFillForSosSplit() to update AutoFill script config
+// ══════════════════════════════════════════════════════════════════════════════
+
+function migrateSosRows() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var tabName = sheet.getName();
+
+  Logger.log('Running SOS migration on tab: ' + tabName);
+
+  var data     = sheet.getDataRange().getValues();
+  var numRows  = data.length;
+  var migrated = 0;
+  var skipped  = 0;
+
+  // Scan bottom to top so row insertions don't shift indices
+  for (var i = numRows - 1; i >= 14; i--) { // skip summary (rows 1-14)
+    var colB = (data[i][1] || '').toString().trim();
+
+    // Skip already migrated rows
+    if (colB.toUpperCase() === 'SOS CALL BOOKING' ||
+        colB.toUpperCase() === 'SOS FORMS') {
+      skipped++;
+      continue;
+    }
+
+    // Only process exact "SOS" rows (not SOS MS)
+    if (colB.toUpperCase() === 'SOS') {
+      var sheetRow = i + 1; // 1-based
+
+      // Step 1: Rename "SOS" → "SOS Call Booking"
+      sheet.getRange(sheetRow, 2).setValue('SOS Call Booking');
+
+      // Step 2: Insert new row after this row
+      sheet.insertRowAfter(sheetRow);
+
+      // Step 3: Write "SOS Forms" in Col B of the new row
+      sheet.getRange(sheetRow + 1, 2).setValue('SOS Forms');
+
+      Logger.log('✅ Row ' + sheetRow + ': SOS → SOS Call Booking | inserted SOS Forms at row ' + (sheetRow + 1));
+      migrated++;
+
+      // Re-read data since we inserted a row
+      data    = sheet.getDataRange().getValues();
+      numRows = data.length;
+    }
+  }
+
+  Logger.log('══ Migration complete ══');
+  Logger.log('Migrated: ' + migrated + ' SOS rows');
+  Logger.log('Skipped (already done): ' + skipped);
+  Logger.log('');
+  Logger.log('Next steps:');
+  Logger.log('1. Run testMidnightRun() to fill data into the new SOS Call Booking + SOS Forms rows');
+  Logger.log('2. Update CAMPAIGN_MAP, COURSE_ORDER, and matchCourseKey in AutoFill_v2_updated.gs (see comments below)');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MANUAL CHANGES NEEDED IN AutoFill_v2_updated.gs AFTER RUNNING migrateSosRows()
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 1. CAMPAIGN_MAP — replace the two SOS entries:
+//
+//    REMOVE:
+//      { contains: 'SOS - Paid ₹99 - Masterclass', course: 'SOS MS',  result_type: 'purchase' },
+//      { contains: 'SOS -',                         course: 'SOS',     result_type: 'lead'     },
+//
+//    ADD (in this order — most specific first):
+//      { contains: 'SOS - Paid ₹99 - Masterclass',  course: 'SOS MS',           result_type: 'purchase' },
+//      { contains: 'SOS - Free Call Booking',        course: 'SOS CALL BOOKING', result_type: 'lead'     },
+//      { contains: 'SOS -',                          course: 'SOS FORMS',        result_type: 'lead'     },
+//
+// 2. COURSE_ORDER — replace 'SOS' with two entries:
+//
+//    REMOVE: 'SOS',
+//    ADD:    'SOS CALL BOOKING', 'SOS FORMS',
+//
+//    Full updated COURSE_ORDER:
+//    var COURSE_ORDER = [
+//      'AI WORKSHOP', 'AI FOR BO', 'AI', 'AI SEMINAR BO',
+//      'DM', 'DM BO PAID', 'DM HW PAID', 'DM 2DC',
+//      'SOS CALL BOOKING', 'SOS FORMS', 'SOS MS',
+//    ];
+//
+// 3. matchCourseKey MAP — replace 'SOS' entries:
+//
+//    REMOVE:
+//      'SOS':   'SOS',
+//      'SOS ':  'SOS',
+//
+//    ADD:
+//      'SOS CALL BOOKING': 'SOS Call Booking',
+//      'SOS FORMS':        'SOS Forms',
+//      'SOS':              'SOS Call Booking',  // alias for old rows
+//
+// 4. MK DB inject section in midnightRun() — the normalized API keys will now be:
+//    'SOS CALL BOOKING' and 'SOS FORMS' (uppercase of what API returns)
+//    No code change needed — the existing inject loop handles it automatically.
+//
+// ════════════════════════
