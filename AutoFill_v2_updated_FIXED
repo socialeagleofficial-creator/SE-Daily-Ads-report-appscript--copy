@@ -1,0 +1,555 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// AutoFill.gs  v3  —  Social Eagle Daily Ads Auto-Fill
+// Runs at 7:00 AM IST every day via time-based trigger.
+// WHY 7 AM: MK DB daily ingest (Windsor + Kylas) runs at 6:00 AM IST.
+// Running before 6 AM means the API returns stale/empty CRM data for yesterday.
+//
+// What happens at 7 AM:
+//   1. Pull yesterday's result + optin counts from MK DB API (GHL/Kylas data)
+//   2. Read end-of-yesterday row counts from HW + BO result sheets
+//   3. Pull yesterday's Windsor spend per campaign
+//   4. Compute HW/BO call bookings = endCount − startCount (from prev midnight)
+//   5. Aggregate all data by course
+//   6. Write yesterday's rows to the monthly tab:
+//        Col C = Ads Spent (from Windsor)
+//        Col E = Result    (from MK DB API — GHL/Kylas verified counts)
+//        Col G = Optin     (from MK DB API)
+//      KEY FIX: Always write 0 explicitly — never leave cells blank.
+//      This ensures the email trigger sees filled cells and fires correctly.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── CONFIGURATION ──────────────────────────────────────────────────────────────
+var CONFIG = {
+  WINDSOR_BASE_URL: 'https://connectors.windsor.ai/facebook',
+  WINDSOR_ACCOUNTS: [
+    '313685364825838',
+    '620342116380719',
+    '826741773781488',
+    '999937302780333',
+    '2746106842449013',
+  ],
+  MKDB_BASE_URL:  'https://dashboard.socialeagleacademy.in/',
+  MAIN_SS_ID:     '1s7fUe5d0pwg40D4CBzoVbXB6ZYz1Xy8hUQZ2R3Ku-w8',
+  HW_SHEET_ID:    '1KYWjXCN_hCY3JwIVZ9Uw-fVEmR3npNJjoGwVV9vCTwU',
+  BO_OPTIN_ID:    '1as7N9KXtpNX5VJglVAMBJzBwLCYjZ9KEEV_6kzEV8sU',
+  BO_PURCHASE_ID: '1QY1go5X0q5BPCZKdvopeYG4iT-3c7IaZZW7HAceNqMk',
+  ALERT_EMAIL:    '',
+  DATA_START_ROW: 16,
+};
+
+// ── CAMPAIGN → COURSE MAPPING ─────────────────────────────────────────────────
+var CAMPAIGN_MAP = [
+  { contains: 'AI First Masterclass',             course: 'AI WORKSHOP',  result_type: 'purchase' },
+  { contains: 'AI for Business Owners',           course: 'AI FOR BO',    result_type: 'purchase' },
+  { contains: 'AI - Seminar for Business Owners', course: 'AI SEMINAR BO',result_type: 'purchase' },
+  { contains: 'AI - Free Call Booking',           course: 'AI',           result_type: 'lead'     },
+  { contains: 'DM - 2 Day Challenge',             course: 'DM 2DC',       result_type: 'purchase' },
+  { contains: 'DM - ₹49 Call Booking - BO',      course: 'DM BO PAID',   result_type: 'sheet'    },
+  { contains: 'DM - ₹49 Call Booking - HW',      course: 'DM HW PAID',   result_type: 'sheet'    },
+  { contains: 'SOS - Paid ₹99 - Masterclass', course: 'SOS MS',           result_type: 'purchase' },
+  { contains: 'SOS - Free Call Booking',       course: 'SOS CALL BOOKING', result_type: 'lead'     },
+  { contains: 'SOS -',                         course: 'SOS FORMS',        result_type: 'lead'     },
+  { contains: 'DM -',                             course: 'DM',           result_type: 'lead'     },
+];
+
+var COURSE_ORDER = [
+  'AI WORKSHOP', 'AI FOR BO', 'AI', 'AI SEMINAR BO',
+  'DM', 'DM BO PAID', 'DM HW PAID', 'DM 2DC',
+  'SOS CALL BOOKING', 'SOS FORMS', 'SOS MS',
+];
+
+// ── VALIDATION ────────────────────────────────────────────────────────────────
+function validateConfig() {
+  var mappedCourses = CAMPAIGN_MAP.map(function(m) { return m.course; });
+  var missing = [];
+  mappedCourses.forEach(function(c) {
+    if (COURSE_ORDER.indexOf(c) === -1) missing.push(c);
+  });
+  if (missing.length > 0) {
+    throw new Error('CAMPAIGN_MAP courses missing from COURSE_ORDER: ' + missing.join(', '));
+  }
+  var validTypes = ['purchase', 'lead', 'sheet'];
+  CAMPAIGN_MAP.forEach(function(m) {
+    if (validTypes.indexOf(m.result_type) === -1) {
+      throw new Error('Invalid result_type "' + m.result_type + '" for course ' + m.course);
+    }
+  });
+}
+
+// ── MAIN: runs at 7:00 AM IST every day ──────────────────────────────────────
+function morningRun() {
+  try { validateConfig(); }
+  catch(e) { sendAlert('Config error — AutoFill aborted', e.message); return; }
+
+  var props         = PropertiesService.getScriptProperties();
+  var tz            = Session.getScriptTimeZone();
+  var now           = new Date();
+  var todayStr      = fmtDate(now, tz, 'yyyy-MM-dd');
+  var yesterday     = new Date(now); yesterday.setDate(now.getDate() - 1);
+  var yesterdayStr  = fmtDate(yesterday, tz, 'yyyy-MM-dd');
+  var yesterdayDisp = fmtDate(yesterday, tz, 'd-MMM-yyyy');
+
+  Logger.log('═══ Morning run — closing out: ' + yesterdayStr + ' ═══');
+
+  // ── STEP 1: Fetch results + optins from MK DB ─────────────────────────────
+  var mkDbResults = fetchMkDbResults(yesterdayStr);
+  if (!mkDbResults) {
+    sendAlert(
+      'AutoFill WARNING — MK DB API failed for ' + yesterdayStr,
+      'Could not fetch results from MK DB. Result and Optin columns will be 0 for '
+      + yesterdayStr + '. Run backfillDate("' + yesterdayStr + '") once the API recovers.'
+    );
+    mkDbResults = {};
+  }
+  Logger.log('MK DB results: ' + JSON.stringify(mkDbResults));
+
+  // ── STEP 2: End-of-yesterday HW/BO row counts ────────────────────────────
+  var hwEnd = countCallBookedRows(CONFIG.HW_SHEET_ID);
+  var boEnd = countCallBookedRows(CONFIG.BO_OPTIN_ID);
+  Logger.log('End counts → HW: ' + hwEnd + '  BO: ' + boEnd);
+
+  // ── STEP 3: Start-of-yesterday snapshot ──────────────────────────────────
+  var hwStartRaw = props.getProperty('hw_start_' + yesterdayStr);
+  var boStartRaw = props.getProperty('bo_start_' + yesterdayStr);
+  var hwResults = 0, boResults = 0;
+  if (hwStartRaw === null || boStartRaw === null) {
+    var msg = 'No snapshot for ' + yesterdayStr + '. HW/BO results set to 0.';
+    Logger.log('WARNING: ' + msg);
+    sendAlert('AutoFill WARNING — missing snapshot', msg);
+  } else {
+    hwResults = Math.max(0, hwEnd - parseInt(hwStartRaw));
+    boResults = Math.max(0, boEnd - parseInt(boStartRaw));
+  }
+  Logger.log('Sheet call bookings → HW: ' + hwResults + '  BO: ' + boResults);
+
+  // ── STEP 4: Pull Windsor data (spend only) ────────────────────────────────
+  var windsorRows = fetchWindsorWithRetry(yesterdayStr, 3);
+  if (!windsorRows) {
+    sendAlert(
+      'AutoFill FAILED — Windsor error for ' + yesterdayStr,
+      'Windsor returned no data after 3 attempts. Spend NOT written. '
+      + 'Run backfillDate("' + yesterdayStr + '") manually once Windsor recovers.'
+    );
+    saveSnapshot(props, todayStr, hwEnd, boEnd);
+    return;
+  }
+  Logger.log('Windsor rows: ' + windsorRows.length);
+
+  // ── STEP 5: Aggregate spend by course ────────────────────────────────────
+  var courseData = aggregateByCourse(windsorRows);
+
+  // ── STEP 6: Initialise ALL courses to 0, then inject MK DB data ──────────
+  // KEY FIX: Every course gets spend/result/optin = 0 by default.
+  // This means even paused courses get 0 written to the sheet — not blank.
+  // Blank cells block the email trigger; 0 allows it to fire.
+  COURSE_ORDER.forEach(function(course) {
+    if (!courseData[course]) courseData[course] = { spend: 0, optin: 0, results: 0 };
+    // Inject MK DB result + optin (overrides Windsor optin)
+    var mkData = mkDbResults[course];
+    if (mkData) {
+      courseData[course].results = (mkData.result !== undefined) ? mkData.result : 0;
+      courseData[course].optin   = (mkData.optin  !== undefined) ? mkData.optin  : 0;
+    }
+    // If MK DB returned nothing for this course, result and optin stay 0
+  });
+
+  // HW/BO: use sheet row-count diff if MK DB returned 0
+  ['DM HW PAID', 'DM BO PAID'].forEach(function(course) {
+    if (courseData[course].results === 0) {
+      var diff = course === 'DM HW PAID' ? hwResults : boResults;
+      courseData[course].results = diff;
+      Logger.log(course + ': MK DB=0, using sheet diff (' + diff + ')');
+    }
+  });
+
+  // ── STEP 7: Write to sheet ────────────────────────────────────────────────
+  var tabName = fmtDate(yesterday, tz, 'MMMM').toUpperCase()
+              + ' ' + fmtDate(yesterday, tz, 'yy');
+  var ss    = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
+  var sheet = ss.getSheetByName(tabName);
+  if (!sheet) {
+    sendAlert(
+      'AutoFill WARNING — tab "' + tabName + '" not found',
+      'Data for ' + yesterdayStr + ' NOT written. Create the tab and run '
+      + 'backfillDate("' + yesterdayStr + '") manually.'
+    );
+  } else {
+    writeToSheet(sheet, yesterday, yesterdayDisp, courseData, tz);
+  }
+
+  // ── STEP 8: Save snapshot for tonight ────────────────────────────────────
+  saveSnapshot(props, todayStr, hwEnd, boEnd);
+  cleanOldSnapshots(props);
+  Logger.log('═══ Morning run complete ═══');
+}
+
+// ── FETCH MK DB RESULTS ───────────────────────────────────────────────────────
+function fetchMkDbResults(dateStr) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('SHEET_SYNC_API_KEY');
+  if (!apiKey) {
+    Logger.log('ERROR: SHEET_SYNC_API_KEY not set in Script Properties.');
+    return null;
+  }
+  var url = CONFIG.MKDB_BASE_URL + '/api/sheet-results?date=' + dateStr;
+  Logger.log('Calling MK DB API: ' + url);
+  try {
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      muteHttpExceptions: true,
+    });
+    var code = resp.getResponseCode();
+    if (code !== 200) {
+      Logger.log('MK DB error ' + code + ': ' + resp.getContentText().substring(0, 300));
+      return null;
+    }
+    var json = JSON.parse(resp.getContentText());
+    var raw = json.results || {};
+    var normalized = {};
+    Object.keys(raw).forEach(function(key) { normalized[key.toUpperCase()] = raw[key]; });
+    Logger.log('MK DB keys: ' + JSON.stringify(Object.keys(normalized)));
+    return normalized;
+  } catch(e) {
+    Logger.log('MK DB exception: ' + e);
+    return null;
+  }
+}
+
+// ── BACKFILL ──────────────────────────────────────────────────────────────────
+function backfillDate(dateStr) {
+  validateConfig();
+  var tz       = Session.getScriptTimeZone();
+  var date     = new Date(dateStr + 'T00:00:00');
+  var dispDate = fmtDate(date, tz, 'd-MMM-yyyy');
+
+  var mkDbResults = fetchMkDbResults(dateStr) || {};
+  var windsorRows = fetchWindsorWithRetry(dateStr, 3);
+  if (!windsorRows) { Logger.log('Windsor failed for ' + dateStr); return; }
+
+  var courseData = aggregateByCourse(windsorRows);
+
+  // Initialise all courses to 0
+  COURSE_ORDER.forEach(function(course) {
+    if (!courseData[course]) courseData[course] = { spend: 0, optin: 0, results: 0 };
+    var mkData = mkDbResults[course];
+    if (mkData) {
+      courseData[course].results = (mkData.result !== undefined) ? mkData.result : 0;
+      courseData[course].optin   = (mkData.optin  !== undefined) ? mkData.optin  : 0;
+    }
+  });
+
+  ['DM HW PAID', 'DM BO PAID'].forEach(function(c) {
+    if (!courseData[c]) courseData[c] = { spend: 0, optin: 0, results: 0 };
+    if (courseData[c].results === 0) {
+      Logger.log(c + ': result is 0 — check MK DB or enter manually.');
+    }
+  });
+
+  var tabName = fmtDate(date, tz, 'MMMM').toUpperCase() + ' ' + fmtDate(date, tz, 'yy');
+  var ss    = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
+  var sheet = ss.getSheetByName(tabName);
+  if (!sheet) { Logger.log('Tab not found: ' + tabName); return; }
+  writeToSheet(sheet, date, dispDate, courseData, tz);
+  Logger.log('Backfill complete for ' + dispDate);
+}
+
+// ── WINDSOR API ───────────────────────────────────────────────────────────────
+function fetchWindsorWithRetry(dateStr, maxAttempts) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('WINDSOR_API_KEY');
+  if (!apiKey) { Logger.log('ERROR: WINDSOR_API_KEY not set.'); return null; }
+  var fields = 'date,account_id,campaign,campaign_objective,spend,actions_lead,actions_purchase';
+  var accountsParam = CONFIG.WINDSOR_ACCOUNTS.join(',');
+  var url = CONFIG.WINDSOR_BASE_URL
+    + '?api_key='    + apiKey
+    + '&date_from='  + dateStr
+    + '&date_to='    + dateStr
+    + '&fields='     + encodeURIComponent(fields)
+    + '&account_ids='+ encodeURIComponent(accountsParam);
+
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      Logger.log('Windsor attempt ' + attempt + '/' + maxAttempts);
+      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (resp.getResponseCode() === 200) {
+        var json = JSON.parse(resp.getContentText());
+        var rows = json.data || json || [];
+        if (rows.length > 0) return rows;
+        Logger.log('Windsor returned 0 rows (attempt ' + attempt + ')');
+      } else {
+        Logger.log('Windsor HTTP ' + resp.getResponseCode() + ' (attempt ' + attempt + ')');
+      }
+    } catch(e) {
+      Logger.log('Windsor exception (attempt ' + attempt + '): ' + e);
+    }
+    if (attempt < maxAttempts) Utilities.sleep(5000 * attempt);
+  }
+  return null;
+}
+
+// ── AGGREGATE SPEND FROM WINDSOR ──────────────────────────────────────────────
+function aggregateByCourse(rows) {
+  var totals = {};
+  rows.forEach(function(row) {
+    var info = getCourseInfo((row.campaign || '').toString().trim());
+    if (!info) return;
+    var course = info.course;
+    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0 };
+    totals[course].spend += parseFloat(row.spend) || 0;
+  });
+  return totals;
+}
+
+function getCourseInfo(name) {
+  var n = name.toLowerCase();
+  for (var i = 0; i < CAMPAIGN_MAP.length; i++) {
+    if (n.indexOf(CAMPAIGN_MAP[i].contains.toLowerCase()) !== -1) return CAMPAIGN_MAP[i];
+  }
+  Logger.log('Unmapped campaign: ' + name);
+  return null;
+}
+
+// ── WRITE TO SHEET ────────────────────────────────────────────────────────────
+// KEY FIX: Always writes 0 explicitly — never leaves cells blank.
+// Blank cells = email trigger waits forever. 0 = trigger fires.
+//
+// Rule:
+//   - spend:  write 0 if Windsor had no data (campaign paused)
+//   - result: write 0 if MK DB returned 0 or no entry for this course
+//   - optin:  write 0 if MK DB returned 0 or no entry for this course
+function writeToSheet(sheet, date, dispDate, courseData, tz) {
+  var data    = sheet.getDataRange().getValues();
+  var numRows = data.length;
+
+  // Find the date block row
+  var blockStartRow = -1;
+  for (var i = CONFIG.DATA_START_ROW - 1; i < numRows; i++) {
+    var cellVal = data[i][0];
+    var cellStr = cellVal instanceof Date
+      ? fmtDate(new Date(cellVal), tz, 'd-MMM-yyyy')
+      : (cellVal || '').toString().trim();
+    if (cellStr === dispDate) { blockStartRow = i; break; }
+  }
+
+  if (blockStartRow === -1) {
+    Logger.log('No pre-built block found for ' + dispDate);
+    sendAlert(
+      'AutoFill WARNING — date block missing',
+      'No row found for ' + dispDate + ' in tab ' + sheet.getName()
+      + '. Add the date block and run backfillDate("'
+      + fmtDate(date, tz, 'yyyy-MM-dd') + '").'
+    );
+    return 0;
+  }
+
+  // Scan block for course rows
+  var courseRows = {};
+  for (var i = blockStartRow; i < numRows; i++) {
+    var colA = (data[i][0] instanceof Date)
+      ? fmtDate(new Date(data[i][0]), tz, 'd-MMM-yyyy')
+      : (data[i][0] || '').toString().trim();
+    var colB = (data[i][1] || '').toString().trim();
+    if (i > blockStartRow && colA !== '' && colA !== dispDate) break;
+    if (i > blockStartRow && colA !== '' && !(data[i][0] instanceof Date)) break;
+    if (colB !== '') courseRows[colB] = i;
+  }
+  Logger.log('Block for ' + dispDate + ' — courses: ' + Object.keys(courseRows).join(', '));
+
+  var written = 0;
+  Object.keys(courseRows).forEach(function(sheetCourseName) {
+    var rowIdx   = courseRows[sheetCourseName];
+    var sheetRow = rowIdx + 1; // 1-based
+    var courseKey = matchCourseKey(sheetCourseName);
+    if (!courseKey) {
+      Logger.log('No match for "' + sheetCourseName + '" — skipping.');
+      return;
+    }
+
+    // Always use 0 as fallback — never leave blank
+    var d       = courseData[courseKey] || { spend: 0, optin: 0, results: 0 };
+    var spend   = Math.round((d.spend   || 0) * 100) / 100;
+    var result  = Math.round(d.results  || 0);
+    var optin   = Math.round(d.optin    || 0);
+    var cpr     = (result > 0 && spend > 0) ? Math.round(spend / result * 100) / 100 : 0;
+
+    // Write all three columns — 0 is a valid value, never skip it
+    sheet.getRange(sheetRow, 3).setValue(spend);   // Col C — Spend
+    sheet.getRange(sheetRow, 5).setValue(result);  // Col E — Result
+    sheet.getRange(sheetRow, 7).setValue(optin);   // Col G — Optin
+
+    Logger.log('  → ' + sheetCourseName + ' [row ' + sheetRow + ']'
+             + '  spend=' + spend
+             + '  result=' + result
+             + '  optin=' + optin);
+    written++;
+  });
+
+  // Set date in col A if blank
+  if (!data[blockStartRow][0] || data[blockStartRow][0].toString().trim() === '') {
+    sheet.getRange(blockStartRow + 1, 1).setValue(date);
+    sheet.getRange(blockStartRow + 1, 1).setNumberFormat('d-mmm-yyyy');
+  }
+
+  Logger.log('Wrote ' + written + ' course rows for ' + dispDate);
+  return written;
+}
+
+// ── COURSE KEY MATCHER ────────────────────────────────────────────────────────
+function matchCourseKey(sheetCourseName) {
+  if (!sheetCourseName) return null;
+  var name = sheetCourseName.toUpperCase().trim();
+  var MAP = {
+    'DM':            'DM',
+    'DM 2DC':        'DM 2DC',
+    'DM BO PAID':    'DM BO PAID',
+    'DM HW PAID':    'DM HW PAID',
+    'AI':            'AI',
+    'AI WORKSHOP':   'AI WORKSHOP',
+    'AI FOR BO':     'AI FOR BO',
+    'AI SEMINAR BO': 'AI SEMINAR BO',
+    'SOS CALL BOOKING': 'SOS Call Booking',
+    'SOS FORMS':        'SOS Forms',
+    'SOS':              'SOS Call Booking',
+    'SOS MS':        'SOS MS',
+  };
+  if (MAP[name] !== undefined) return MAP[name];
+  var keys = Object.keys(MAP);
+  for (var i = 0; i < keys.length; i++) {
+    if (name.indexOf(keys[i].trim()) !== -1 || keys[i].trim().indexOf(name) !== -1) {
+      return MAP[keys[i]];
+    }
+  }
+  return null;
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function countCallBookedRows(ssId) {
+  try {
+    var ss = SpreadsheetApp.openById(ssId);
+    var count = 0;
+    ss.getSheets().forEach(function(sheet) {
+      var data = sheet.getDataRange().getValues();
+      var i = 0;
+      while (i < data.length) {
+        var row = data[i].map(function(c) { return (c || '').toString().toLowerCase().trim(); });
+        var hasTag  = row.some(function(c) { return c === 'unique_tag' || c === 'unique tag'; });
+        var hasMeet = row.some(function(c) { return c.indexOf('meeting') !== -1; });
+        if (hasTag && hasMeet) {
+          i++;
+          while (i < data.length) {
+            var rowText = data[i].join('').trim();
+            if (!rowText) { i++; continue; }
+            var nonEmpty = data[i].filter(function(c) { return (c || '').toString().trim() !== ''; });
+            var isHeader = nonEmpty.length > 3 && nonEmpty.some(function(c) {
+              var s = (c || '').toString().toLowerCase().trim();
+              return s === 'name' || s === 'unique_tag' || s === 'lead_type';
+            });
+            if (isHeader) break;
+            count++;
+            i++;
+          }
+        } else { i++; }
+      }
+    });
+    Logger.log('countCallBookedRows [' + ssId.slice(-8) + ']: ' + count);
+    return count;
+  } catch(e) {
+    var msg = 'countCallBookedRows failed [' + ssId + ']: ' + e;
+    Logger.log(msg);
+    sendAlert('AutoFill WARNING — sheet read error', msg);
+    return 0;
+  }
+}
+
+function saveSnapshot(props, dateStr, hwCount, boCount) {
+  props.setProperty('hw_start_' + dateStr, hwCount.toString());
+  props.setProperty('bo_start_' + dateStr, boCount.toString());
+  Logger.log('Snapshot saved for ' + dateStr + ' → HW: ' + hwCount + '  BO: ' + boCount);
+}
+
+function cleanOldSnapshots(props) {
+  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 5);
+  props.getKeys().forEach(function(key) {
+    var prefix = '';
+    if (key.indexOf('hw_start_') === 0) prefix = 'hw_start_';
+    if (key.indexOf('bo_start_') === 0) prefix = 'bo_start_';
+    if (!prefix) return;
+    var keyDate = new Date(key.substring(prefix.length) + 'T00:00:00');
+    if (!isNaN(keyDate.getTime()) && keyDate < cutoff) {
+      props.deleteProperty(key);
+      Logger.log('Cleaned snapshot: ' + key);
+    }
+  });
+}
+
+function sendAlert(subject, body) {
+  try {
+    MailApp.sendEmail({
+      to:      CONFIG.ALERT_EMAIL,
+      subject: '[AutoFill] ' + subject,
+      body:    body + '\n\nTime: ' + new Date().toString(),
+    });
+  } catch(e) { Logger.log('sendAlert failed: ' + e); }
+}
+
+function fmtDate(date, tz, format) {
+  return Utilities.formatDate(date, tz, format);
+}
+
+// ── SETUP + TEST ──────────────────────────────────────────────────────────────
+function storeWindsorApiKey() {
+  PropertiesService.getScriptProperties()
+    .setProperty('WINDSOR_API_KEY', '21ea2eec4ddf36ffcaafa9fa297270a4dda5');
+  Logger.log('Windsor API key stored.');
+}
+
+function storeMkDbApiKey() {
+  PropertiesService.getScriptProperties()
+    .setProperty('SHEET_SYNC_API_KEY', 'PASTE_YOUR_KEY_HERE');
+  Logger.log('MK DB API key stored.');
+}
+
+function setupTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'midnightRun') ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === 'morningRun')  ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('morningRun')
+    .timeBased().everyDays(1).atHour(7).create();
+  Logger.log('Trigger set: morningRun at 7:00 AM daily.');
+}
+
+function testMkDbApi() {
+  var tz   = Session.getScriptTimeZone();
+  var date = fmtDate(new Date(new Date().setDate(new Date().getDate() - 1)), tz, 'yyyy-MM-dd');
+  Logger.log('Testing MK DB API for: ' + date);
+  var results = fetchMkDbResults(date);
+  if (!results) { Logger.log('❌ MK DB test FAILED.'); return; }
+  Logger.log('✅ MK DB test OK!');
+  Object.keys(results).sort().forEach(function(c) {
+    Logger.log('  ' + c + ': result=' + results[c].result + '  optin=' + results[c].optin);
+  });
+}
+
+function testMorningRun() { morningRun(); }
+
+function testWindsor() {
+  var tz   = Session.getScriptTimeZone();
+  var date = fmtDate(new Date(new Date().setDate(new Date().getDate() - 1)), tz, 'yyyy-MM-dd');
+  var rows = fetchWindsorWithRetry(date, 1);
+  if (!rows) { Logger.log('Windsor test FAILED'); return; }
+  Logger.log('Windsor OK — ' + rows.length + ' rows for ' + date);
+  var totals = aggregateByCourse(rows);
+  Object.keys(totals).sort().forEach(function(c) {
+    Logger.log('  ' + c + ': ₹' + Math.round(totals[c].spend));
+  });
+}
+
+function seedInitialSnapshot() {
+  var props    = PropertiesService.getScriptProperties();
+  var tz       = Session.getScriptTimeZone();
+  var todayStr = fmtDate(new Date(), tz, 'yyyy-MM-dd');
+  var hw = countCallBookedRows(CONFIG.HW_SHEET_ID);
+  var bo = countCallBookedRows(CONFIG.BO_OPTIN_ID);
+  saveSnapshot(props, todayStr, hw, bo);
+  Logger.log('Snapshot seeded for ' + todayStr + ' → HW: ' + hw + '  BO: ' + bo);
+}
