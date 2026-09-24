@@ -1,0 +1,222 @@
+// ============================================================
+// GOOGLE ADS SPEND — AI ROW AUTOFILL
+// Add this to your existing AutoFill v3.gs
+// Runs at midnight alongside the existing Windsor Meta spend pull
+// ============================================================
+//
+// SAFE ROWS: Only touches Col C of the row where Col B = "AI"
+// Will NEVER touch: AI SEMINAR BO, AI WORKSHOP, or any other row
+//
+// HOW IT WORKS:
+// 1. Calls Windsor AI Google Ads connector for yesterday's spend
+// 2. Sums spend from AI campaigns only (YT Conv + Leads Search)
+// 3. Finds the AI row in the current month tab
+// 4. Adds Google Ads spend to existing Meta spend in Col C
+// ============================================================
+
+// --- CONFIG ---
+// Campaign names that belong to the AI course
+// Add or remove campaign names here if campaigns change in future
+var AI_GOOGLE_CAMPAIGNS = [
+  "YT Conv – 2025-09-22",
+  "YT Conv – 2025-09-22 #2",       // paused but included as safety net
+  "Leads Search Campaign 24/08/2026"
+];
+
+// The exact course name in Col B of your sheet for the AI row
+var AI_ROW_COURSE_NAME = "AI";
+
+// Windsor AI API key — store this in Script Properties
+// In Apps Script: File > Project Properties > Script Properties
+// Key: WINDSOR_API_KEY   Value: your_windsor_api_key
+var WINDSOR_API_KEY = PropertiesService.getScriptProperties().getProperty("WINDSOR_API_KEY");
+
+// Your Windsor account ID for Google Ads
+// Find this by calling Windsor's /data-feeds endpoint or from your Windsor dashboard
+var WINDSOR_ACCOUNT_ID = PropertiesService.getScriptProperties().getProperty("WINDSOR_GOOGLE_ACCOUNT_ID");
+
+
+// ============================================================
+// MAIN FUNCTION — call this from your existing midnight trigger
+// or add it to your existing runAutoFill() function
+// ============================================================
+function fillGoogleAdsSpendForAI() {
+
+  try {
+    // Step 1: Get yesterday's date (since midnight run is for previous day)
+    var yesterday = getYesterdayDate(); // returns "YYYY-MM-DD"
+    Logger.log("Filling Google Ads spend for date: " + yesterday);
+
+    // Step 2: Pull Google Ads spend from Windsor AI
+    var googleAdsSpend = fetchGoogleAdsSpendForAI(yesterday);
+    Logger.log("Google Ads spend for AI campaigns: ₹" + googleAdsSpend);
+
+    // If no spend data found, skip — don't overwrite with 0
+    if (googleAdsSpend === 0) {
+      Logger.log("No Google Ads spend found for AI campaigns on " + yesterday + ". Skipping.");
+      return;
+    }
+
+    // Step 3: Open the sheet and find the correct tab (current month)
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = getMonthTabName(); // e.g. "Aug 2026"
+    var sheet = ss.getSheetByName(sheetName);
+
+    if (!sheet) {
+      Logger.log("Sheet tab not found: " + sheetName);
+      return;
+    }
+
+    // Step 4: Find the AI row for yesterday's date
+    var aiRowIndex = findAIRowForDate(sheet, yesterday);
+
+    if (aiRowIndex === -1) {
+      Logger.log("AI row not found for date: " + yesterday);
+      return;
+    }
+
+    Logger.log("Found AI row at row index: " + aiRowIndex);
+
+    // Step 5: Read existing Meta spend from Col C (index 3)
+    var existingMetaSpend = sheet.getRange(aiRowIndex, 3).getValue();
+    existingMetaSpend = parseFloat(existingMetaSpend) || 0;
+    Logger.log("Existing Meta spend in Col C: ₹" + existingMetaSpend);
+
+    // Step 6: Combine Meta + Google Ads spend
+    var totalSpend = existingMetaSpend + googleAdsSpend;
+    totalSpend = Math.round(totalSpend * 100) / 100; // round to 2 decimal places
+    Logger.log("Total combined spend (Meta + Google): ₹" + totalSpend);
+
+    // Step 7: Write combined spend back to Col C
+    sheet.getRange(aiRowIndex, 3).setValue(totalSpend);
+    Logger.log("✅ Col C updated for AI row on " + yesterday + " → ₹" + totalSpend);
+
+  } catch (e) {
+    Logger.log("❌ Error in fillGoogleAdsSpendForAI: " + e.message);
+  }
+}
+
+
+// ============================================================
+// FETCH GOOGLE ADS SPEND FROM WINDSOR AI
+// Calls Windsor's data endpoint and sums AI campaign spend only
+// ============================================================
+function fetchGoogleAdsSpendForAI(dateStr) {
+
+  // Windsor AI data endpoint
+  var url = "https://connectors.windsor.ai/google_ads?api_key=" + WINDSOR_API_KEY
+    + "&date_from=" + dateStr
+    + "&date_to=" + dateStr
+    + "&fields=campaign,spend"
+    + (WINDSOR_ACCOUNT_ID ? "&account_id=" + WINDSOR_ACCOUNT_ID : "");
+
+  var options = {
+    method: "GET",
+    muteHttpExceptions: true,
+    headers: {
+      "Content-Type": "application/json"
+    }
+  };
+
+  var response = UrlFetchApp.fetch(url, options);
+  var responseCode = response.getResponseCode();
+
+  if (responseCode !== 200) {
+    Logger.log("Windsor API error: " + responseCode + " — " + response.getContentText());
+    return 0;
+  }
+
+  var json = JSON.parse(response.getContentText());
+  var data = json.data || [];
+
+  // Sum spend only from AI campaigns — strictly filtered by name
+  var totalAISpend = 0;
+
+  data.forEach(function(row) {
+    var campaignName = (row.campaign || "").trim();
+
+    // Check if this campaign belongs to the AI course
+    var isAICampaign = AI_GOOGLE_CAMPAIGNS.some(function(name) {
+      return campaignName === name; // exact match — no partial matches
+    });
+
+    if (isAICampaign) {
+      var spend = parseFloat(row.spend) || 0;
+      totalAISpend += spend;
+      Logger.log("  Matched AI campaign: " + campaignName + " → ₹" + spend);
+    }
+  });
+
+  return Math.round(totalAISpend * 100) / 100;
+}
+
+
+// ============================================================
+// FIND AI ROW — searches Col B for "AI" and Col A for the date
+// Returns the row number (1-indexed) or -1 if not found
+// ============================================================
+function findAIRowForDate(sheet, dateStr) {
+
+  var data = sheet.getDataRange().getValues();
+  var targetDate = new Date(dateStr);
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+
+    // Col A = Date (index 0), Col B = Course Name (index 1)
+    var cellDate = row[0];
+    var courseName = (row[1] || "").toString().trim();
+
+    // Strict check: course name must be exactly "AI"
+    // This safely skips "AI SEMINAR BO", "AI WORKSHOP", etc.
+    if (courseName !== AI_ROW_COURSE_NAME) continue;
+
+    // Check if the date matches
+    if (cellDate instanceof Date) {
+      var cellDateStr = Utilities.formatDate(cellDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      if (cellDateStr === dateStr) {
+        return i + 1; // convert 0-index to 1-index row number
+      }
+    }
+  }
+
+  return -1; // not found
+}
+
+
+// ============================================================
+// HELPER: Get yesterday's date as "YYYY-MM-DD"
+// ============================================================
+function getYesterdayDate() {
+  var d = new Date();
+  d.setDate(d.getDate() - 1);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+
+// ============================================================
+// HELPER: Get current month tab name — matches your sheet format
+// e.g. "Aug 2026", "Sep 2026"
+// Adjust the format string below if your tab names differ
+// ============================================================
+function getMonthTabName() {
+  var d = new Date();
+  // Using yesterday's date since we're filling for yesterday
+  d.setDate(d.getDate() - 1);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMM yyyy");
+}
+
+
+// ============================================================
+// TEST FUNCTION — run this manually to verify before going live
+// Change the date to any date that has data in your sheet
+// ============================================================
+function testGoogleAdsSpendFill() {
+  Logger.log("=== TEST RUN ===");
+  Logger.log("Testing Windsor connection and AI campaign spend fetch...");
+
+  var testDate = "2026-08-26"; // change this to test a specific date
+  var spend = fetchGoogleAdsSpendForAI(testDate);
+  Logger.log("AI Google Ads spend on " + testDate + ": ₹" + spend);
+  Logger.log("Expected: YT Conv ₹1565.29 + Leads Search ₹1480.72 = ₹3046.01");
+}
