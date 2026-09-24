@@ -1,0 +1,595 @@
+// ── SPREADSHEET IDs ───────────────────────────────────────────────────────────
+var WEBINAR_DM_SOS_ID = "1z5Te4ISNNmSKNd02JXsGZlwFV-ltsknPGPojuIaQJ2M";
+var WEBINAR_AI_ID     = "1p87RBtKb-UfSLlNZvkWm2NTH0dqtB3-O8yDqnan7z50";
+var MONTHLY_DM_SOS_ID = "1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM";
+var MONTHLY_AI_ID     = "1mBYUJ2QECvYrH6ALdVel1qSM7oRyrMfPdnjeJbDWzNY";
+
+// ── COURSE GROUPS ─────────────────────────────────────────────────────────────
+var COURSE_GROUPS = {
+  AI:  ["AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"],
+  DM:  ["DM", "DM BO PAID", "DM HW PAID", "DM 2DC"],
+  SOS: ["SOS", "SOS MS"]
+};
+
+var RESULT_LABELS = {
+  "AI": "Call Bookings", "AI FOR KIDS": "Call Bookings", "AI SEMINAR BO": "Seminar Registrations",
+  "AI WORKSHOP": "Registrations", "AI FOR BO": "Registrations",
+  "DM": "Call Bookings", "DM BO PAID": "Call Bookings",
+  "DM HW PAID": "Call Bookings", "DM 2DC": "Registrations",
+  "SOS": "Registrations", "SOS MS": "Registrations"
+};
+
+// Webinar sheet tab names per group
+var WEBINAR_TABS = {
+  DM:  ["DM - 2DC"],
+  SOS: ["SOS - Masterclass"],
+  AI:  ["AI For WP", "AI For BO"]
+};
+
+// ── WEB APP ───────────────────────────────────────────────────────────────────
+
+// ── EMAIL-ONLY LOGIN ──────────────────────────────────────────────────────────
+function validateEmail(email) {
+  try {
+    email = (email || "").toString().trim().toLowerCase();
+    if (!email) return JSON.stringify({ error: "Please enter your email address." });
+
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Dashboard Access");
+    if (!sheet) return JSON.stringify({ error: "Dashboard Access tab not found." });
+    var data = sheet.getDataRange().getValues();
+
+    for (var r = 1; r < data.length; r++) {
+      var rowEmail = (data[r][0] || "").toString().trim().toLowerCase();
+      var rowRole  = (data[r][1] || "").toString().trim().toUpperCase();
+      if (rowEmail === email && rowRole !== "") {
+        return JSON.stringify({ success: true, role: rowRole, groups: getVisibleGroups(rowRole) });
+      }
+    }
+    return JSON.stringify({ error: "This email is not authorized to access the dashboard." });
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
+
+function doGet(e) {
+  var template = HtmlService.createTemplateFromFile("Dashboard");
+  template.months = JSON.stringify(getAvailableMonths());
+  return template.evaluate()
+    .setTitle("Social Eagle — Ads Dashboard")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ── LOGIN ─────────────────────────────────────────────────────────────────────
+function validateLogin(email, pin) {
+  try {
+    email = (email || "").toString().trim().toLowerCase();
+    pin   = (pin   || "").toString().trim();
+    if (!email || !pin) return JSON.stringify({ error: "Please enter both email and PIN." });
+
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Dashboard Access");
+    if (!sheet) return JSON.stringify({ error: "Dashboard Access tab not found." });
+    var data = sheet.getDataRange().getValues();
+
+    var props   = PropertiesService.getScriptProperties();
+    var failKey = "fails_" + email.replace(/[^a-z0-9]/g, "_");
+    var lockKey = "lock_"  + email.replace(/[^a-z0-9]/g, "_");
+    var lockUntil = Number(props.getProperty(lockKey) || 0);
+    if (lockUntil > Date.now()) {
+      var mins = Math.ceil((lockUntil - Date.now()) / 60000);
+      return JSON.stringify({ error: "Too many failed attempts. Try again in " + mins + " minute(s)." });
+    }
+
+    for (var r = 1; r < data.length; r++) {
+      var rowEmail = (data[r][0] || "").toString().trim().toLowerCase();
+      var rowRole  = (data[r][1] || "").toString().trim().toUpperCase();
+      var rowPIN   = (data[r][2] || "").toString().trim();
+      if (rowEmail === email) {
+        if (!rowPIN) return JSON.stringify({ error: "No PIN set. Contact admin." });
+        if (rowPIN === pin) {
+          props.deleteProperty(failKey);
+          props.deleteProperty(lockKey);
+          return JSON.stringify({ success: true, role: rowRole, groups: getVisibleGroups(rowRole) });
+        } else {
+          var fails = Number(props.getProperty(failKey) || 0) + 1;
+          props.setProperty(failKey, fails.toString());
+          if (fails >= 5) {
+            props.setProperty(lockKey, (Date.now() + 15 * 60 * 1000).toString());
+            props.deleteProperty(failKey);
+            return JSON.stringify({ error: "Too many failed attempts. Locked for 15 minutes." });
+          }
+          return JSON.stringify({ error: "Incorrect PIN. " + (5 - fails) + " attempt(s) remaining." });
+        }
+      }
+    }
+    return JSON.stringify({ error: "Email not authorized." });
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
+
+function getVisibleGroups(role) {
+  if (role === "MASTER" || role === "ALL") return ["AI", "DM", "SOS"];
+  if (role === "AI")  return ["AI"];
+  if (role === "DM")  return ["DM"];
+  if (role === "SOS") return ["SOS"];
+  return [];
+}
+
+// ── MAIN DATA LOADER ──────────────────────────────────────────────────────────
+function loadCurrentData(groupsJson) {
+  try {
+    var groups = JSON.parse(groupsJson);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = Session.getScriptTimeZone();
+    var today = new Date();
+    var yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    var monthName = Utilities.formatDate(yesterday, tz, "MMMM").toUpperCase();
+    var yearShort = Utilities.formatDate(yesterday, tz, "yy");
+    var sheet = ss.getSheetByName(monthName + " " + yearShort);
+    if (!sheet) {
+      sheet = ss.getSheetByName(Utilities.formatDate(yesterday, tz, "MMM").toUpperCase() + " " + yearShort);
+    }
+
+    var data = sheet ? sheet.getDataRange().getValues() : [];
+    var yesterdayStr = Utilities.formatDate(yesterday, tz, "d-MMM-yyyy");
+
+    var dateBlocks = [];
+    for (var i = 15; i < data.length; i++) {
+      if (data[i][0] instanceof Date) {
+        dateBlocks.push({
+          row: i,
+          dateStr: Utilities.formatDate(new Date(data[i][0]), tz, "d-MMM-yyyy"),
+          time: new Date(data[i][0]).getTime()
+        });
+      }
+    }
+
+    var dayOfWeek = yesterday.getDay();
+    var daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    var currentWeekStart = new Date(yesterday);
+    currentWeekStart.setDate(yesterday.getDate() - daysFromMonday);
+    currentWeekStart.setHours(0,0,0,0);
+    var monthStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+    var prevWeeks  = buildPrevWeeks(monthStart, currentWeekStart, tz);
+
+    // Get current month short name for conversion tab lookup e.g. "July"
+    var currentMonthLabel = Utilities.formatDate(yesterday, tz, "MMMM"); // e.g. "August"
+
+    var result = {};
+    groups.forEach(function(group) {
+      var courses = COURSE_GROUPS[group];
+      result[group] = {
+        yesterday:     getYesterday(data, dateBlocks, courses, yesterdayStr),
+        currentWeek:   aggregateWeek(data, dateBlocks, courses, currentWeekStart, yesterday),
+        previousWeeks: prevWeeks.map(function(w) {
+          return {
+            label:    w.label,
+            startStr: Utilities.formatDate(w.start, tz, "d MMM"),
+            endStr:   Utilities.formatDate(w.end,   tz, "d MMM"),
+            rows:     aggregateWeek(data, dateBlocks, courses, w.start, w.end)
+          };
+        }),
+        monthly:    getMonthSummary(data, courses),
+        dailyLog:   getDailyLog(data, courses, tz),
+        conversion: [], // loaded lazily when Monthly tab is clicked
+        webinars:   []  // loaded lazily when Webinar tab is clicked
+      };
+    });
+
+    return JSON.stringify(result);
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
+
+// ── CONVERSION DATA: fetch tab named e.g. "DM - July", "AI - July" ───────────
+function getConversionForMonth(group, monthLabel) {
+  // monthLabel = full month name e.g. "July", "August"
+  try {
+    var ssId, tabName;
+    if (group === "AI") {
+      ssId    = MONTHLY_AI_ID;
+      tabName = "AI - " + monthLabel;
+    } else if (group === "DM") {
+      ssId    = MONTHLY_DM_SOS_ID;
+      tabName = "DM - " + monthLabel;
+    } else if (group === "SOS") {
+      ssId    = MONTHLY_DM_SOS_ID;
+      tabName = "SOS - " + monthLabel;
+    } else { return []; }
+
+    var ss    = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet) return []; // tab doesn't exist yet — return empty silently
+
+    var data = sheet.getDataRange().getValues();
+    return parseMonthlyConv(data, COURSE_GROUPS[group]);
+  } catch(e) {
+    Logger.log("Conv error [" + group + " " + monthLabel + "]: " + e);
+    return [];
+  }
+}
+
+// ── MONTH DATA: called when user changes dropdown ─────────────────────────────
+// monthTab = e.g. "JULY 26", group = "AI" / "DM" / "SOS"
+function loadMonthData(monthTab, group) {
+  try {
+    // Get marketing data from main sheet
+    var ss    = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(monthTab);
+    var marketing = [];
+    if (sheet) {
+      marketing = getMonthSummary(sheet.getDataRange().getValues(), COURSE_GROUPS[group] || []);
+    }
+
+    // Extract month label from tab name e.g. "JULY 26" → "July"
+    var parts = monthTab.split(" ");
+    var monthLabel = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    // e.g. "JULY" → "July"
+
+    var conversion = getConversionForMonth(group, monthLabel);
+
+    return JSON.stringify({ marketing: marketing, conversion: conversion });
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
+
+// ── WEBINAR DATA: read all tabs for a group from webinar sheets ───────────────
+function getWebinarData(group) {
+  try {
+    var ssId = (group === "AI") ? WEBINAR_AI_ID : WEBINAR_DM_SOS_ID;
+    var tabs = WEBINAR_TABS[group] || [];
+    var ss   = SpreadsheetApp.openById(ssId);
+    var result = []; // array of { tabName, headers, rows }
+
+    tabs.forEach(function(tabName) {
+      var sheet = ss.getSheetByName(tabName);
+      if (!sheet) return;
+      var data = sheet.getDataRange().getValues();
+      if (data.length < 2) return;
+
+      // Read headers as-is (preserve original casing for display)
+      var headers = data[0].map(function(h){ return (h||"").toString().trim(); });
+      // Filter out empty trailing headers
+      while (headers.length && !headers[headers.length-1]) headers.pop();
+      if (!headers.length) return;
+
+      var dataRows = [];
+      for (var r = 1; r < data.length; r++) {
+        // Skip fully empty rows
+        var hasData = data[r].some(function(c){ return (c||"").toString().trim() !== ""; });
+        if (!hasData) continue;
+        // Build row as array matching headers
+        var rowArr = headers.map(function(h, ci){
+          return (data[r][ci] === undefined || data[r][ci] === null) ? "" : data[r][ci].toString().trim();
+        });
+        // Skip rows where first column (Date) is empty
+        if (!rowArr[0]) continue;
+        dataRows.push(rowArr);
+      }
+
+      if (!dataRows.length) return;
+      dataRows.reverse(); // newest first
+
+      result.push({
+        tabName: tabName,
+        headers: headers,
+        rows:    dataRows
+      });
+    });
+
+    return result;
+  } catch(e) {
+    Logger.log("Webinar error [" + group + "]: " + e);
+    return [];
+  }
+}
+
+// ── PARSE MONTHLY CONVERSION ──────────────────────────────────────────────────
+// Dynamic header detection — reads all columns from sheet
+// Actual columns: Course, Spend, Optin, Result, CPR, RevThruReg, ConvType,
+//   Conversions, ConvRate, CAC, ValuePerConv, TotalConvVal, TotalRevenue,
+//   ROAS, BudgetEst, ExpectedResults, ExpectedConversions, ExpectedRevenue
+function parseMonthlyConv(data, courses) {
+  if (!data || data.length < 2) return [];
+
+  // Find header row — look for "Course Name" in col 0
+  var headerRow = -1;
+  for (var i = 0; i < Math.min(data.length, 10); i++) {
+    var c0 = (data[i][0] || "").toString().trim().toLowerCase();
+    if (c0 === "course name" || c0 === "course") { headerRow = i; break; }
+  }
+  if (headerRow === -1) return [];
+
+  // Map headers to column indices dynamically
+  var headers = data[headerRow].map(function(h){ return (h||"").toString().trim(); });
+  var hLow    = headers.map(function(h){ return h.toLowerCase(); });
+
+  function col(keywords) {
+    for (var k = 0; k < keywords.length; k++) {
+      for (var i = 0; i < hLow.length; i++) {
+        if (hLow[i].indexOf(keywords[k]) !== -1) return i;
+      }
+    }
+    return -1;
+  }
+
+  var ci = {
+    name:        0,
+    spend:       col(['monthly spend','spend']),
+    optin:       col(['optin']),
+    result:      col(['result']),
+    cpr:         col(['cpr']),
+    revThruReg:  col(['revenue thru reg','revenue thru registration']),
+    convType:    col(['conversion type','conv type']),
+    conversions: col(['conversions']),
+    convRate:    col(['conversion rate','conv rate']),
+    cac:         col(['cac']),
+    valuePerConv:col(['value per conv']),
+    totalConvVal:col(['total conversion value','total conv value']),
+    totalRevenue:col(['total revenue']),
+    roas:        col(['roas']),
+    budgetEst:   col(['budget estimation','budget est']),
+    expResults:  col(['expected results']),
+    expConv:     col(['expected conversions','expected conv']),
+    expRevenue:  col(['expected revenue'])
+  };
+
+  var rows = [];
+  for (var r = headerRow + 1; r < data.length; r++) {
+    var cName = (data[r][0] || "").toString().trim();
+    if (!cName || cName.toLowerCase() === "total" || cName.toLowerCase() === "course name") continue;
+    var cUp = cName.toUpperCase();
+    if (!courses.some(function(c) { return c.toUpperCase() === cUp; })) continue;
+    var spend = ci.spend >= 0 ? cleanNum(data[r][ci.spend]) : 0;
+    if (spend <= 0) continue;
+
+    var row = {
+      name:         cName,
+      spend:        spend,
+      optin:        ci.optin        >= 0 ? cleanNum(data[r][ci.optin])        : 0,
+      result:       ci.result       >= 0 ? cleanNum(data[r][ci.result])       : 0,
+      cpr:          ci.cpr          >= 0 ? cleanNum(data[r][ci.cpr])          : 0,
+      revThruReg:   ci.revThruReg   >= 0 ? cleanNum(data[r][ci.revThruReg])   : 0,
+      convType:     ci.convType     >= 0 ? (data[r][ci.convType]||"").toString().trim() : "",
+      conversions:  ci.conversions  >= 0 ? cleanNum(data[r][ci.conversions])  : 0,
+      convRate:     ci.convRate     >= 0 ? cleanPct(data[r][ci.convRate])     : 0,
+      cac:          ci.cac          >= 0 ? cleanNum(data[r][ci.cac])          : 0,
+      valuePerConv: ci.valuePerConv >= 0 ? cleanNum(data[r][ci.valuePerConv]) : 0,
+      totalConvVal: ci.totalConvVal >= 0 ? cleanNum(data[r][ci.totalConvVal]) : 0,
+      totalRevenue: ci.totalRevenue >= 0 ? cleanNum(data[r][ci.totalRevenue]) : 0,
+      roas:         ci.roas         >= 0 ? cleanNum(data[r][ci.roas])         : 0,
+      budgetEst:    ci.budgetEst    >= 0 ? cleanNum(data[r][ci.budgetEst])    : 0,
+      expResults:   ci.expResults   >= 0 ? cleanNum(data[r][ci.expResults])   : 0,
+      expConv:      ci.expConv      >= 0 ? cleanNum(data[r][ci.expConv])      : 0,
+      expRevenue:   ci.expRevenue   >= 0 ? cleanNum(data[r][ci.expRevenue])   : 0
+    };
+    rows.push(row);
+  }
+  return rows;
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function findCol(headers, options) {
+  for (var i = 0; i < options.length; i++) {
+    var idx = headers.indexOf(options[i]);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function cleanNum(val) {
+  if (!val && val !== 0) return 0;
+  var s = val.toString().replace(/[₹,\s]/g,"");
+  var n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+function cleanPct(val) {
+  if (!val && val !== 0) return 0;
+  var s = val.toString().replace(/[%\s]/g,"");
+  var n = parseFloat(s);
+  if (isNaN(n)) return 0;
+  // Google Sheets stores % as decimal (e.g. 0.85 = 85%)
+  // If value is between -1 and 1 (exclusive), multiply by 100
+  if (n > -1 && n < 1 && n !== 0) return n * 100;
+  return n;
+}
+
+// ── AVAILABLE MONTHS ──────────────────────────────────────────────────────────
+function getAvailableMonths() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var monthOrder = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
+                    "JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+  var result = [];
+  ss.getSheets().forEach(function(s) {
+    var parts = s.getName().trim().split(" ");
+    if (parts.length === 2 && monthOrder.indexOf(parts[0]) !== -1 && parts[1].length === 2) {
+      result.push(s.getName());
+    }
+  });
+  result.sort(function(a, b) {
+    var pa = a.split(" "), pb = b.split(" ");
+    var ya = parseInt("20"+pa[1]), yb = parseInt("20"+pb[1]);
+    return ya !== yb ? ya-yb : monthOrder.indexOf(pa[0])-monthOrder.indexOf(pb[0]);
+  });
+  return result;
+}
+
+// ── MARKETING DATA HELPERS ────────────────────────────────────────────────────
+
+// ── DAILY LOG ─────────────────────────────────────────────────────────────────
+function getDailyLog(data, courses, tz) {
+  var optinCol = detectOptinCol(data);
+  var dateBlocks = [];
+  for (var i = 15; i < data.length; i++) {
+    if (data[i][0] instanceof Date) {
+      dateBlocks.push({
+        row: i,
+        dateStr: Utilities.formatDate(new Date(data[i][0]), tz, 'd-MMM-yyyy'),
+        time: new Date(data[i][0]).getTime()
+      });
+    }
+  }
+  var days = [];
+  dateBlocks.forEach(function(b, idx) {
+    var endRow = idx+1 < dateBlocks.length ? dateBlocks[idx+1].row : data.length;
+    var dayRows = [];
+    for (var r = b.row; r < endRow; r++) {
+      var cName = (data[r][1]||'').toString().trim();
+      var cUp = cName.toUpperCase();
+      if (!courses.some(function(c){return c.toUpperCase()===cUp;})) continue;
+      var spend = Number(data[r][2])||0;
+      if (spend <= 0) continue;
+      dayRows.push({
+        name:    cName,
+        label:   RESULT_LABELS[cUp]||'Results',
+        spend:   spend,
+        results: Number(data[r][4])||0,
+        cpr:     Number(data[r][5])||0,
+        optin:   optinCol>=0 ? (Number(data[r][optinCol])||0) : 0
+      });
+    }
+    if (dayRows.length) days.push({ date: b.dateStr, time: b.time, rows: dayRows });
+  });
+  return days.sort(function(a,b){return b.time-a.time;});
+}
+function getYesterday(data, dateBlocks, courses, yesterdayStr) {
+  var block = null, blockIdx = -1;
+  for (var i = 0; i < dateBlocks.length; i++) {
+    if (dateBlocks[i].dateStr === yesterdayStr) { block = dateBlocks[i]; blockIdx = i; break; }
+  }
+  if (!block) return [];
+  var endRow = blockIdx + 1 < dateBlocks.length ? dateBlocks[blockIdx+1].row : data.length;
+
+  // Detect optin column by reading the daily log header row
+  var optinCol = detectOptinCol(data);
+
+  var rows = [];
+  for (var r = block.row; r < endRow; r++) {
+    var cName = (data[r][1]||"").toString().trim();
+    var cUp   = cName.toUpperCase();
+    if (courses.some(function(c){return c.toUpperCase()===cUp;})) {
+      var spend = Number(data[r][2])||0;
+      if (spend > 0) rows.push({ name:cName, spend:spend,
+        results:Number(data[r][4])||0, cpr:Number(data[r][5])||0,
+        optin: optinCol >= 0 ? (Number(data[r][optinCol])||0) : 0,
+        label:RESULT_LABELS[cUp]||"Results"});
+    }
+  }
+  return rows;
+}
+
+// Find the column index of "Optin" in the daily log header
+// Searches for a row where col 0 = "Date" and col 1 = "Course Name"
+function detectOptinCol(data) {
+  for (var i = 0; i < data.length; i++) {
+    var col0 = (data[i][0]||"").toString().trim().toLowerCase();
+    var col1 = (data[i][1]||"").toString().trim().toLowerCase();
+    if (col0 === "date" && (col1 === "course name" || col1 === "course")) {
+      // This is the header row — find "optin" column
+      for (var c = 0; c < data[i].length; c++) {
+        if ((data[i][c]||"").toString().trim().toLowerCase() === "optin") {
+          return c;
+        }
+      }
+      return -1; // header found but no optin column
+    }
+  }
+  return -1; // no header found
+}
+
+function aggregateWeek(data, dateBlocks, courses, startDate, endDate) {
+  var totals = {};
+  courses.forEach(function(c) {
+    totals[c.toUpperCase()]={name:c,spend:0,results:0,optin:0,label:RESULT_LABELS[c.toUpperCase()]||"Results"};
+  });
+  var sd=new Date(startDate);sd.setHours(0,0,0,0);
+  var ed=new Date(endDate);ed.setHours(23,59,59,999);
+  var optinCol = detectOptinCol(data);
+  dateBlocks.forEach(function(b,idx) {
+    var bd=new Date(b.time);
+    if(bd>=sd&&bd<=ed){
+      var bEnd=idx+1<dateBlocks.length?dateBlocks[idx+1].row:data.length;
+      for(var r=b.row;r<bEnd;r++){
+        var cn=(data[r][1]||"").toString().trim().toUpperCase();
+        if(totals[cn]&&Number(data[r][2])>0){
+          totals[cn].spend+=Number(data[r][2])||0;
+          totals[cn].results+=Number(data[r][4])||0;
+          totals[cn].optin+=optinCol>=0?(Number(data[r][optinCol])||0):0;
+        }
+      }
+    }
+  });
+  return Object.keys(totals).map(function(k){return totals[k];})
+    .filter(function(c){return c.spend>0;})
+    .map(function(c){return{name:c.name,spend:c.spend,results:c.results,optin:c.optin,
+      cpr:c.results>0?c.spend/c.results:0,label:c.label};});
+}
+
+function getMonthSummary(data, courses) {
+  // Find the summary table header row to detect column positions
+  // Look for row with "Course Name" in col 0 and "Monthly Spend" in col 1
+  var summaryHeaderRow = -1;
+  var optinSummaryCol = -1;
+  for (var i = 0; i < Math.min(20, data.length); i++) {
+    var c0 = (data[i][0]||"").toString().trim().toLowerCase();
+    var c1 = (data[i][1]||"").toString().trim().toLowerCase();
+    if (c0 === "course name" && c1 === "monthly spend") {
+      summaryHeaderRow = i;
+      // Find "Total Optin" column in this header
+      for (var c = 0; c < data[i].length; c++) {
+        var hdr = (data[i][c]||"").toString().trim().toLowerCase();
+        if (hdr === "total optin" || hdr === "total optins") {
+          optinSummaryCol = c;
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  var startRow = summaryHeaderRow >= 0 ? summaryHeaderRow + 1 : 2;
+  var rows=[];
+  for(var r=startRow;r<=startRow+15;r++){
+    if(!data[r])continue;
+    var cName=(data[r][0]||"").toString().trim();
+    if(!cName || cName.toLowerCase()==="course name")continue;
+    var cUp=cName.toUpperCase();
+    if(!courses.some(function(c){return c.toUpperCase()===cUp;}))continue;
+    var spend=Number(data[r][1])||0;
+    if(spend>0){
+      var res=Number(data[r][9])||0;
+      rows.push({name:cName,spend:spend,results:res,
+        optin: optinSummaryCol>=0 ? (Number(data[r][optinSummaryCol])||0) : 0,
+        cpr:res>0?spend/res:0,label:RESULT_LABELS[cUp]||"Results"});
+    }
+  }
+  return rows;
+}
+
+function buildPrevWeeks(monthStart, currentWeekStart, tz) {
+  var weeks=[],wStart=new Date(monthStart);
+  var day=wStart.getDay();
+  if(day!==1)wStart.setDate(wStart.getDate()-(day===0?6:day-1));
+  var weekNum=1,csTime=currentWeekStart.getTime();
+  while(wStart.getTime()<csTime){
+    var wEnd=new Date(wStart);wEnd.setDate(wStart.getDate()+6);wEnd.setHours(23,59,59,999);
+    var wEndC=wEnd.getTime()<csTime?wEnd:new Date(csTime-1);
+    weeks.push({label:"Week "+weekNum,start:new Date(wStart),end:new Date(wEndC)});
+    wStart.setDate(wStart.getDate()+7);weekNum++;
+  }
+  return weeks;
+}
+
+// ── LAZY LOADERS: called from browser only when tab is clicked ────────────────
+function loadConversionTab(group, monthTab) {
+  try {
+    var parts = (monthTab || "").split(" ");
+    var monthLabel = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    var conversion = getConversionForMonth(group, monthLabel);
+    return JSON.stringify({ conversion: conversion });
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
+
+function loadWebinarTab(group) {
+  try {
+    var webinars = getWebinarData(group);
+    return JSON.stringify({ webinars: webinars });
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+}
