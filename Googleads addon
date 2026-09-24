@@ -1,0 +1,97 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// GoogleAds_Addon.gs
+// ADD THIS AS A NEW FILE alongside AutoFill v3.gs — do NOT edit v3 at all.
+//
+// Only does ONE thing:
+//   Fetches Google Ads spend for AI campaigns from Windsor
+//   and adds it to courseData["AI"].spend before v3 writes Col C.
+//
+// HOW TO ACTIVATE:
+//   In AutoFill v3.gs, find this line inside midnightRun():
+//
+//     var courseData = aggregateByCourse(windsorRows);
+//
+//   Add ONE line immediately after it:
+//
+//     addGoogleAdsSpend(courseData);
+//
+//   That's it. Nothing else changes.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Google Ads campaign names that belong to the AI course
+var AI_GOOGLE_ADS_CAMPAIGNS = [
+  "YT Conv – 2025-09-22",
+  "YT Conv – 2025-09-22 #2",
+  "Leads Search Campaign 24/08/2026"
+];
+
+// ── MAIN ADD-ON FUNCTION ──────────────────────────────────────────────────────
+// Called from midnightRun() after aggregateByCourse()
+// Fetches Google Ads spend and adds it directly to courseData["AI"].spend
+function addGoogleAdsSpend(courseData) {
+  var tz           = Session.getScriptTimeZone();
+  var yesterday    = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  var yesterdayStr = Utilities.formatDate(yesterday, tz, 'yyyy-MM-dd');
+
+  var googleSpend = fetchGoogleAdsSpendForAI(yesterdayStr);
+
+  if (googleSpend === 0) {
+    Logger.log('Google Ads: no spend found for AI on ' + yesterdayStr + ' — skipping.');
+    return;
+  }
+
+  // Make sure AI entry exists in courseData
+  if (!courseData['AI']) courseData['AI'] = { spend: 0, optin: 0, results: 0 };
+
+  var before = courseData['AI'].spend;
+  courseData['AI'].spend += googleSpend;
+  var after = courseData['AI'].spend;
+
+  Logger.log('Google Ads spend added to AI → Meta: ₹' + Math.round(before)
+           + ' + Google: ₹' + Math.round(googleSpend)
+           + ' = Total: ₹' + Math.round(after));
+}
+
+
+// ── FETCH GOOGLE ADS SPEND FROM WINDSOR ──────────────────────────────────────
+function fetchGoogleAdsSpendForAI(dateStr) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('WINDSOR_API_KEY');
+
+  var url = 'https://connectors.windsor.ai/google_ads'
+    + '?api_key='   + apiKey
+    + '&date_from=' + dateStr
+    + '&date_to='   + dateStr
+    + '&fields=campaign,spend';
+
+  try {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('Google Ads Windsor error: ' + resp.getResponseCode());
+      return 0;
+    }
+
+    var rows = JSON.parse(resp.getContentText()).data || [];
+    var total = 0;
+
+    rows.forEach(function(row) {
+      if (AI_GOOGLE_ADS_CAMPAIGNS.indexOf((row.campaign || '').trim()) !== -1) {
+        total += parseFloat(row.spend) || 0;
+      }
+    });
+
+    return Math.round(total * 100) / 100;
+
+  } catch(e) {
+    Logger.log('Google Ads fetch exception: ' + e);
+    return 0;
+  }
+}
+
+
+// ── TEST — run this manually to verify before midnight trigger ────────────────
+function testGoogleAdsAddon() {
+  var testDate = '2026-08-26';
+  var spend = fetchGoogleAdsSpendForAI(testDate);
+  Logger.log('AI Google Ads spend on ' + testDate + ': ₹' + spend);
+  Logger.log('Expected: ₹' + (1565.2852 + 1480.72).toFixed(2)); // YT Conv + Leads Search
+}
