@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Social Eagle — Ads Intelligence</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --bg:      #0d1117;
+  --glass:   rgba(255,255,255,0.09);
+  --glass2:  rgba(255,255,255,0.14);
+  --border:  rgba(255,255,255,0.15);
+  --border2: rgba(255,255,255,0.25);
+  --t1: #ffffff;
+  --t2: #c8d4f0;
+  --t3: #7890b8;
+  --acc:  #c4b5fd;
+  --acc2: #a78bfa;
+  --green: #34d399;
+  --red:   #f87171;
+  --amber: #fbbf24;
+  --r:  18px;
+  --r2: 24px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; min-height: 100vh; overflow-x: hidden; }
+body { font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+
+/* ── VIDEO BG ── */
+#bgVideo {
+  position: fixed; inset: 0; z-index: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+  filter: blur(2px) saturate(1.4) brightness(1.1);
+}
+/* Frosted overlay — softens video, makes glass readable */
+
+
+/* ── TOPBAR ── */
+.topbar {
+  position: sticky; top: 0; z-index: 1000; height: 58px;
+  background: rgba(8,12,22,0.95);
+  backdrop-filter: blur(32px) saturate(1.8);
+  -webkit-backdrop-filter: blur(32px) saturate(1.8);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.5), 0 4px 24px rgba(120,80,200,0.08);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand img { height: 28px; width: auto; }
+.brand-text { display: flex; flex-direction: column; }
+.brand-name { font-size: 13px; font-weight: 800; letter-spacing: -.2px; color: var(--t1); }
+.brand-sub { font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: 2px; text-transform: uppercase; }
+.topbar-r { display: flex; align-items: center; gap: 8px; }
+.live-pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 20px;
+  background: rgba(16,185,129,0.12);
+  border: 1px solid rgba(16,185,129,0.3);
+  font-size: 10px; font-weight: 700; color: #34d399; letter-spacing: .5px;
+}
+.ldot { width: 5px; height: 5px; border-radius: 50%; background: #10b981;
+  box-shadow: 0 0 6px #10b981; animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.6)} }
+.g-chip {
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px; padding: 4px 12px;
+  font-size: 11px; color: var(--t2); font-weight: 500;
+  backdrop-filter: blur(8px);
+}
+.role-pill {
+  background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.3);
+  border-radius: 20px; padding: 4px 11px;
+  font-size: 10px; font-weight: 800; color: var(--acc2);
+  letter-spacing: .8px; text-transform: uppercase;
+}
+
+/* ── LOGIN ── */
+#loginScreen {
+  min-height: 100vh; display: flex; align-items: center;
+  justify-content: center; position: relative; z-index: 2; padding: 24px;
+}
+.login-card {
+  width: 100%; max-width: 400px;
+  background: rgba(16,22,42,0.82);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 32px; padding: 44px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.15),
+    0 32px 80px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(255,255,255,0.05);
+  position: relative; overflow: hidden;
+}
+.login-card::before {
+  content: ''; position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+}
+.login-logo { display: block; height: 32px; margin-bottom: 28px; }
+.login-h { font-size: 26px; font-weight: 900; letter-spacing: -.6px; color: var(--t1); margin-bottom: 5px; }
+.login-sub { font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 28px; line-height: 1.6; }
+.fl { margin-bottom: 14px; }
+.fl label { display: block; font-size: 10px; font-weight: 700; color: var(--t2);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 7px; color: rgba(255,255,255,0.7); }
+.fi {
+  width: 100%; padding: 12px 16px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px; font-size: 14px; color: #fff;
+  font-family: inherit; outline: none;
+  transition: all .2s;
+}
+.fi:focus {
+  border-color: var(--acc);
+  background: rgba(124,58,237,0.1);
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.15);
+}
+.fi::placeholder { color: var(--t3); }
+.login-btn {
+  width: 100%; padding: 13px; border: none; border-radius: 14px; margin-top: 4px;
+  background: linear-gradient(135deg, rgba(124,58,237,0.9), rgba(91,45,142,0.9));
+  color: white; font-size: 14px; font-weight: 700; cursor: pointer;
+  font-family: inherit; transition: all .2s;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 24px rgba(124,58,237,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+.login-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(124,58,237,0.4); }
+.login-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+.login-err {
+  display: none; margin-top: 12px;
+  background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.25);
+  border-radius: 12px; padding: 10px 13px; font-size: 12px; color: #991b1b; line-height: 1.5;
+}
+.login-hint { margin-top: 18px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.4); }
+
+/* ── DASHBOARD ── */
+#dashScreen { display: none; position: relative; z-index: 2; }
+.main { max-width: 1400px; margin: 0 auto; padding: 22px 22px 80px; }
+.dash-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.dash-info { display: flex; align-items: center; gap: 7px; font-size: 11px; color: rgba(255,255,255,0.65); font-weight: 500; }
+.s-dot { width: 5px; height: 5px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981; }
+.refresh-btn {
+  display: flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 20px;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  font-size: 11px; font-weight: 600; color: var(--t1); cursor: pointer;
+  backdrop-filter: blur(8px); transition: all .2s; font-family: inherit;
+}
+.refresh-btn:hover { background: rgba(255,255,255,0.16); }
+
+/* Glass mixin */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 16px rgba(120,60,200,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
+}
+
+/* ── GROUP TABS ── */
+.group-tabs {
+  display: flex; gap: 3px; margin-bottom: 22px;
+  background: rgba(16,22,42,0.8); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 4px; width: fit-content;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.gtab {
+  padding: 8px 22px; border-radius: 16px; font-size: 11px; font-weight: 700;
+  cursor: pointer; border: none; background: transparent; color: var(--t3);
+  transition: all .2s; text-transform: uppercase; letter-spacing: .8px; font-family: inherit;
+}
+.gtab:hover { color: var(--t2); background: rgba(255,255,255,0.25); }
+.gtab.active {
+  background: rgba(255,255,255,0.12);
+  color: #fff; border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 12px rgba(0,0,0,0.3);
+}
+.gpanel { display: none; animation: fadeUp .22s ease; }
+.gpanel.active { display: block; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+
+/* ── SECTION NAV ── */
+.section-nav { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; }
+.sbtn {
+  padding: 7px 18px; border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer;
+  background: rgba(16,22,42,0.7); border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.55); transition: all .2s; backdrop-filter: blur(8px); font-family: inherit;
+}
+.sbtn:hover { background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.95); }
+.sbtn.active {
+  background: rgba(255,255,255,0.12); color: #fff;
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15);
+}
+.spanel { display: none; animation: fadeUp .2s ease; }
+.spanel.active { display: block; }
+
+/* ── KPI CARDS ── */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: 14px; margin-bottom: 16px; }
+.kpi-card {
+  background: rgba(20,26,46,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r2); padding: 22px;
+  position: relative; overflow: hidden; cursor: default;
+  transition: all .25s cubic-bezier(.4,0,.2,1);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    inset 0 -1px 0 rgba(0,0,0,0.2);
+}
+.kpi-card::before {
+  content: ''; position: absolute; top: 0; left: 15%; right: 15%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+}
+.kpi-card::after {
+  content: ''; position: absolute; top: -50px; right: -50px;
+  width: 130px; height: 130px; border-radius: 50%;
+  background: radial-gradient(circle, var(--korb, rgba(180,140,255,0.12)) 0%, transparent 70%);
+  pointer-events: none;
+}
+.kpi-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,0.45);
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    0 0 0 1px rgba(196,181,253,0.2);
+}
+.kc1 { --korb: rgba(124,58,237,0.1); }
+.kc2 { --korb: rgba(5,150,105,0.1); }
+.kc3 { --korb: rgba(217,119,6,0.1); }
+.kc4 { --korb: rgba(220,38,38,0.08); }
+
+.kpi-icon {
+  width: 36px; height: 36px; border-radius: 10px; margin-bottom: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
+  background: rgba(16,22,42,0.8); border: 1px solid rgba(255,255,255,0.12);
+}
+.kpi-label { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.65);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; }
+.kpi-value {
+  font-size: 30px; font-weight: 900; color: var(--t1);
+  letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.kpi-sub { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 8px; }
+
+/* ── TABLE CARD ── */
+.tcard {
+  background: rgba(16,22,42,0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--r2); overflow: hidden; margin-bottom: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: border-color .2s;
+}
+.tcard:hover { border-color: rgba(255,255,255,0.7); }
+.tcard-hdr {
+  padding: 14px 22px;
+  background: rgba(0,0,0,0.15);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.tcard-title { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: 1px; }
+.tcard-pills { display: flex; gap: 6px; }
+.tbadge {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.6); font-size: 10px; padding: 2px 9px; border-radius: 20px; font-weight: 600;
+}
+.tbadge-hi { color: var(--acc); border-color: rgba(124,58,237,0.3); background: rgba(124,58,237,0.08); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead tr { background: rgba(255,255,255,0.12); }
+th {
+  padding: 11px 18px; text-align: right; color: rgba(255,255,255,0.55); font-weight: 600;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+th:first-child { text-align: left; }
+td { padding: 13px 18px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.08); transition: background .15s; color: rgba(255,255,255,0.9); font-weight: 500; }
+td:first-child { text-align: left; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: rgba(255,255,255,0.08); }
+.cname { font-weight: 700; color: #fff; }
+.clabel { font-size: 10px; color: rgba(196,181,253,0.9); font-weight: 600; margin-top: 2px; }
+.val-n { font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.val-g { color: #34d399; font-weight: 700; }
+.val-b { color: #c4b5fd; }
+/* spend bar behind cell */
+.sc { position: relative; }
+.sb { position: absolute; left: 0; top: 0; bottom: 0;
+  background: linear-gradient(90deg, rgba(167,139,250,0.15), rgba(124,58,237,0.03));
+  border-radius: 0 4px 4px 0; pointer-events: none; transition: width .5s ease; }
+.sv { position: relative; z-index: 1; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.total-row td { background: rgba(255,255,255,0.12) !important; color: var(--t1); font-weight: 800; border-top: 1px solid rgba(255,255,255,0.2); }
+.roas-tag { display: inline-block; padding: 2px 9px; border-radius: 8px; font-size: 12px; font-weight: 800; }
+.rg { background: rgba(16,185,129,0.15); color: #34d399; }
+.ra { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.rr { background: rgba(248,113,113,0.15); color: #f87171; }
+
+/* ── WEEK ACCORDION ── */
+.week-block { margin-bottom: 8px; }
+.week-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px;
+  background: rgba(16,22,42,0.8); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px; cursor: pointer; transition: all .2s;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.week-hdr:hover { background: rgba(28,36,62,0.9); border-color: rgba(255,255,255,0.18); }
+.wl { font-weight: 700; color: var(--t1); font-size: 12px; }
+.wr { font-size: 11px; color: rgba(255,255,255,0.45); margin-left: 8px; }
+.wt { font-size: 11px; color: #c4b5fd; font-weight: 700; }
+.chev { color: var(--t3); transition: transform .25s; font-size: 10px; }
+.chev.open { transform: rotate(180deg); }
+.week-body { display: none; padding-top: 6px; }
+.week-body.open { display: block; animation: fadeUp .2s ease; }
+
+/* ── MONTH ── */
+.month-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.month-row label { font-size: 10px; font-weight: 700; color: var(--t2); text-transform: uppercase; letter-spacing: 1.5px; }
+select {
+  padding: 8px 14px;
+  background: rgba(16,22,42,0.8); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px; font-size: 12px; color: var(--t1); cursor: pointer;
+  font-weight: 600; outline: none; font-family: inherit;
+  backdrop-filter: blur(8px); transition: all .2s;
+}
+select:focus { border-color: rgba(124,58,237,0.4); }
+.load-btn {
+  padding: 8px 18px; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(124,58,237,0.85), rgba(91,45,142,0.85));
+  color: white; font-size: 11px; font-weight: 700; border: none; cursor: pointer;
+  font-family: inherit; transition: all .2s; backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(124,58,237,0.25), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+.load-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,58,237,0.35); }
+.load-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+/* ── WEBINAR ── */
+.webinar-card {
+  background: rgba(16,22,42,0.85); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1); border-radius: var(--r2);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  padding: 22px; margin-bottom: 14px; transition: all .25s; position: relative; overflow: hidden;
+}
+.webinar-card::before {
+  content: ''; position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+}
+.webinar-card:hover { border-color: rgba(255,255,255,0.7); transform: translateY(-1px); box-shadow: 0 12px 40px rgba(120,60,200,0.1); }
+.webinar-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.webinar-name { font-size: 15px; font-weight: 800; color: var(--t1); letter-spacing: -.3px; }
+.webinar-date { font-size: 11px; color: var(--t3); margin-top: 3px; }
+.roas-pill {
+  padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 900;
+  border: 1px solid; backdrop-filter: blur(8px);
+}
+.roas-pill.g { background: rgba(16,185,129,0.15); color: #34d399; border-color: rgba(16,185,129,0.3); }
+.roas-pill.a { background: rgba(251,191,36,0.15); color: #fbbf24; border-color: rgba(251,191,36,0.3); }
+.roas-pill.r { background: rgba(248,113,113,0.15); color: #f87171; border-color: rgba(248,113,113,0.3); }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 9px; }
+.metric {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px; padding: 12px 14px; transition: all .2s;
+}
+.metric:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+.metric-lbl { font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+.metric-val { font-size: 16px; font-weight: 800; color: var(--t1); letter-spacing: -.5px; }
+
+/* ── STATES ── */
+.divider { height: 1px; background: rgba(255,255,255,0.3); margin: 22px 0; }
+.empty {
+  text-align: center; padding: 48px 24px; color: var(--t3); font-size: 13px;
+  background: rgba(16,22,42,0.8); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--r2); backdrop-filter: blur(16px);
+}
+.global-load { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px; gap: 16px; }
+.inline-load { display: flex; align-items: center; gap: 8px; padding: 24px 16px; color: var(--t3); font-size: 12px; }
+.spin {
+  width: 32px; height: 32px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: var(--acc2);
+  border-radius: 50%; animation: spin .75s linear infinite;
+}
+.spin-sm { display: inline-block; width: 11px; height: 11px; border: 1.5px solid rgba(255,255,255,.4); border-top-color: white; border-radius: 50%; animation: spin .75s linear infinite; vertical-align: middle; margin-left: 5px; }
+.spin-xs { display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(255,255,255,.3); border-top-color: var(--acc2); border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.load-txt { color: var(--t2); font-size: 12px; font-weight: 500; }
+.err-box { background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.25); border-radius: 14px; padding: 13px; color: #991b1b; font-size: 12px; margin-bottom: 14px; }
+
+
+
+
+
+
+.conv-course-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px; padding: 20px 22px;
+  margin-bottom: 12px; transition: border-color .2s;
+}
+.conv-course-card:hover { border-color: rgba(255,255,255,0.2); }
+</style>
+</head>
+<body>
+
+<!-- VIDEO BACKGROUND -->
+<!-- Animated canvas background -->
+<canvas id="bgCanvas" style="position:fixed;inset:0;z-index:0;width:100%;height:100%;pointer-events:none;"></canvas>
+
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="brand">
+    <img src="https://www.socialeagle.in/logo-white.png" alt="Social Eagle" style="filter:brightness(0) invert(1); opacity:0.9;">
+    <div class="brand-text">
+      <div class="brand-name">Social Eagle</div>
+      <div class="brand-sub">Ads Intelligence</div>
+    </div>
+  </div>
+  <div class="topbar-r" id="topbarR">
+    <div class="live-pill" id="livePill" style="display:none;">
+      <div class="ldot"></div>Live
+    </div>
+    <span class="g-chip" id="userChip">—</span>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-card">
+    <img src="https://www.socialeagle.in/logo-white.png" class="login-logo" alt="Social Eagle" style="filter:brightness(0) invert(1); opacity:0.9;">
+    <div class="login-h">Welcome back</div>
+    <div class="login-sub">Sign in to access your Ads Intelligence dashboard</div>
+    <div class="fl">
+      <label>Email Address</label>
+      <input type="email" class="fi" id="emailInput" placeholder="you@socialeagle.ai"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" id="loginBtn" onclick="doLogin()">Access Dashboard</button>
+    <div class="login-err" id="loginErr"></div>
+    <div class="login-hint">Contact admin if you need access</div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashScreen">
+  <div class="main">
+    <div class="dash-top">
+      <div class="dash-info" id="lastUpd"></div>
+      <button class="refresh-btn" onclick="reloadData()">↻ Refresh</button>
+    </div>
+    <div class="group-tabs" id="groupTabs"></div>
+    <div id="groupPanels">
+      <div class="global-load"><div class="spin"></div><div class="load-txt">Loading dashboard...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var MONTHS=JSON.parse('<?= months ?>');
+var GROUPS=[],allData=null,lazyLoaded={};
+var INR=function(v){return'\u20B9'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0});};
+var PCT=function(v){return Number(v).toFixed(2)+'%';};
+var FMT=function(v){var n=Number(v);return!n?'0':n%1===0?n.toString():n.toFixed(2);};
+
+function doLogin(){
+  var email=(document.getElementById('emailInput').value||'').trim();
+  if(!email){showErr('Please enter your email address.');return;}
+  var btn=document.getElementById('loginBtn');
+  btn.disabled=true;btn.innerHTML='Signing in<span class="spin-sm"></span>';
+  document.getElementById('loginErr').style.display='none';
+  google.script.run
+    .withSuccessHandler(function(j){
+      var r=JSON.parse(j);
+      if(r.error){showErr(r.error);btn.disabled=false;btn.textContent='Access Dashboard';}
+      else{GROUPS=r.groups;showDash(email,r.role);}
+    })
+    .withFailureHandler(function(){showErr('Connection error. Try again.');btn.disabled=false;btn.textContent='Access Dashboard';})
+    .validateEmail(email);
+}
+function showErr(m){var e=document.getElementById('loginErr');e.textContent=m;e.style.display='block';}
+function showDash(email,role){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('dashScreen').style.display='block';
+  document.getElementById('userChip').textContent=email;
+  var rp=document.createElement('span');rp.className='role-pill';rp.textContent=role;
+  document.getElementById('topbarR').insertBefore(rp,document.getElementById('userChip'));
+  document.getElementById('livePill').style.display='flex';
+  loadData();
+}
+
+function reloadData(){
+  allData=null;
+  document.getElementById('groupPanels').innerHTML='<div class="global-load"><div class="spin"></div><div class="load-txt">Refreshing...</div></div>';
+  loadData();
+}
+
+function loadData(){
+  google.script.run
+    .withSuccessHandler(function(j){
+      try{
+        allData=JSON.parse(j);
+        if(allData.error){document.getElementById('groupPanels').innerHTML='<div class="err-box">'+allData.error+'</div>';return;}
+        var t=new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'});
+        document.getElementById('lastUpd').innerHTML='<div class="s-dot"></div>Updated '+t+' IST';
+        buildUI();
+      }catch(e){document.getElementById('groupPanels').innerHTML='<div class="err-box">'+e+'</div>';}
+    })
+    .withFailureHandler(function(e){document.getElementById('groupPanels').innerHTML='<div class="err-box">'+(e.message||e)+'</div>';})
+    .loadCurrentData(JSON.stringify(GROUPS));
+}
+
+function buildUI(){
+  var te=document.getElementById('groupTabs');te.innerHTML='';
+  GROUPS.forEach(function(g,i){
+    var b=document.createElement('button');
+    b.className='gtab'+(i===0?' active':'');b.id='gtab-'+g;
+    b.textContent=g+' Courses';b.setAttribute('onclick','showGroup("'+g+'")');
+    te.appendChild(b);lazyLoaded[g]={};
+  });
+  var pe=document.getElementById('groupPanels');pe.innerHTML='';
+  GROUPS.forEach(function(g,i){
+    var d=document.createElement('div');
+    d.className='gpanel'+(i===0?' active':'');d.id='gpanel-'+g;
+    d.innerHTML=buildGroup(g);pe.appendChild(d);
+  });
+}
+
+function showGroup(g){
+  GROUPS.forEach(function(gr){
+    var t=document.getElementById('gtab-'+gr),p=document.getElementById('gpanel-'+gr);
+    if(t)t.className='gtab'+(gr===g?' active':'');
+    if(p)p.className='gpanel'+(gr===g?' active':'');
+  });
+}
+
+function showSec(g,sid){
+  var panel=document.getElementById('gpanel-'+g);
+  panel.querySelectorAll('.spanel').forEach(function(p){p.className='spanel';});
+  panel.querySelectorAll('.sbtn').forEach(function(b){b.className='sbtn';});
+  var sp=document.getElementById('sp-'+g+'-'+sid);
+  var sb=document.getElementById('sb-'+g+'-'+sid);
+  if(sp)sp.className='spanel active';if(sb)sb.className='sbtn active';
+  if(sid==='month'&&!lazyLoaded[g].month){lazyLoaded[g].month=true;loadConv(g,getCurMonth());}
+  if(sid==='webinar'&&!lazyLoaded[g].webinar){lazyLoaded[g].webinar=true;loadWeb(g);}
+}
+
+function buildGroup(g){
+  var d=allData[g]||{};
+  var secs=[{id:'yesterday',label:'📊 Yesterday'},{id:'week',label:'📅 This Week'},
+    {id:'prevweeks',label:'📆 Prev Weeks'},{id:'month',label:'📈 Monthly'},
+    {id:'daily',label:'📅 Daily Log'},{id:'webinar',label:'🎯 Webinar'}];
+  var h='<div class="section-nav">';
+  secs.forEach(function(s,i){
+    h+='<button class="sbtn'+(i===0?' active':'')+'" id="sb-'+g+'-'+s.id+'" onclick="showSec(\''+g+'\',\''+s.id+'\')">'+s.label+'</button>';
+  });
+  h+='</div>';
+
+  h+='<div class="spanel active" id="sp-'+g+'-yesterday">';
+  h+=kpiGrid(d.yesterday||[],'mkt')+mktTable(d.yesterday||[],"Yesterday's Performance",false);
+  h+='</div>';
+
+  h+='<div class="spanel" id="sp-'+g+'-week">';
+  h+=kpiGrid(d.currentWeek||[],'mkt')+mktTable(d.currentWeek||[],'Current Week',true);
+  h+='</div>';
+
+  h+='<div class="spanel" id="sp-'+g+'-prevweeks">';
+  var pw=d.previousWeeks||[];
+  if(!pw.length){h+=empty('No completed weeks yet.');}
+  else pw.forEach(function(w,i){
+    var ts=w.rows?w.rows.reduce(function(a,r){return a+(r.spend||0);},0):0;
+    var open=i===0;
+    h+='<div class="week-block"><div class="week-hdr" onclick="togWk(this)">';
+    h+='<div style="display:flex;align-items:center;gap:8px;"><span class="wl">'+w.label+'</span><span class="wr">'+w.startStr+' – '+w.endStr+'</span></div>';
+    h+='<div style="display:flex;align-items:center;gap:10px;"><span class="wt">'+INR(ts)+'</span><span class="chev'+(open?' open':'')+'">▼</span></div>';
+    h+='</div><div class="week-body'+(open?' open':'')+'">';
+    h+=mktTable(w.rows||[],'',true)+'</div></div>';
+  });
+  h+='</div>';
+
+  h+='<div class="spanel" id="sp-'+g+'-month">';
+  h+='<div class="month-row"><label>Month</label><select id="msel-'+g+'">';
+  var cur=getCurMonth();
+  MONTHS.forEach(function(m){h+='<option value="'+m+'"'+(m===cur?' selected':'')+'>'+m+'</option>';});
+  h+='</select><button class="load-btn" id="mbtn-'+g+'" onclick="loadMonth(\''+g+'\')">Load</button></div>';
+  h+='<div id="mkt-'+g+'">';
+  h+=kpiGrid(d.monthly||[],'mkt')+mktTable(d.monthly||[],'Marketing Performance',false);
+  h+='</div><div class="divider"></div>';
+  h+='<div id="conv-'+g+'"><div class="inline-load"><div class="spin-xs"></div>&nbsp;Loading conversion data...</div></div>';
+  h+='</div>';
+
+  h+='<div class="spanel" id="sp-'+g+'-daily">';
+  h+=buildDailyLog(d.dailyLog||[],g);
+  h+='</div>';
+
+  h+='<div class="spanel" id="sp-'+g+'-webinar">';
+  h+='<div id="web-'+g+'"><div class="inline-load"><div class="spin-xs"></div>&nbsp;Loading webinar data...</div></div>';
+  h+='</div>';
+  return h;
+}
+
+function loadConv(g,tab){
+  var el=document.getElementById('conv-'+g);if(!el)return;
+  google.script.run
+    .withSuccessHandler(function(j){
+      var r=JSON.parse(j);
+      if(r.error){el.innerHTML='<div class="err-box">'+r.error+'</div>';return;}
+      var rows=r.conversion||[];
+      el.innerHTML=rows.length?convTable(rows,'Conversion Performance'):empty('No conversion data for this month yet.');
+    })
+    .withFailureHandler(function(e){el.innerHTML='<div class="err-box">'+(e.message||e)+'</div>';})
+    .loadConversionTab(g,tab);
+}
+
+function loadWeb(g){
+  var el=document.getElementById('web-'+g);if(!el)return;
+  google.script.run
+    .withSuccessHandler(function(j){
+      var r=JSON.parse(j);
+      if(r.error){el.innerHTML='<div class="err-box">'+r.error+'</div>';return;}
+      el.innerHTML=webCards(r.webinars||[],g);
+    })
+    .withFailureHandler(function(e){el.innerHTML='<div class="err-box">'+(e.message||e)+'</div>';})
+    .loadWebinarTab(g);
+}
+
+function loadMonth(g){
+  var tab=document.getElementById('msel-'+g).value;
+  var btn=document.getElementById('mbtn-'+g);
+  var mktEl=document.getElementById('mkt-'+g);
+  var convEl=document.getElementById('conv-'+g);
+  btn.disabled=true;btn.innerHTML='Loading<span class="spin-sm"></span>';
+  mktEl.innerHTML='<div class="inline-load"><div class="spin-xs"></div>&nbsp;Loading...</div>';
+  convEl.innerHTML='<div class="inline-load"><div class="spin-xs"></div>&nbsp;Loading conversion data...</div>';
+  google.script.run
+    .withSuccessHandler(function(j){
+      var data=JSON.parse(j);var rows=data.marketing||[];
+      mktEl.innerHTML=rows.length?kpiGrid(rows,'mkt')+mktTable(rows,tab+' Marketing',false):empty('No data for '+tab+'.');
+      btn.disabled=false;btn.textContent='Load';
+    })
+    .withFailureHandler(function(e){mktEl.innerHTML='<div class="err-box">'+(e.message||e)+'</div>';btn.disabled=false;btn.textContent='Load';})
+    .loadMonthData(tab,g);
+  google.script.run
+    .withSuccessHandler(function(j){
+      var r=JSON.parse(j);var rows=r.conversion||[];
+      convEl.innerHTML=rows.length?convTable(rows,tab+' Conversion'):empty('No conversion data for '+tab+' yet.');
+    })
+    .withFailureHandler(function(e){convEl.innerHTML='<div class="err-box">'+(e.message||e)+'</div>';})
+    .loadConversionTab(g,tab);
+}
+
+function kpiGrid(rows,type){
+  if(!rows||!rows.length)return'';
+  var h='<div class="kpi-grid">';
+  if(type==='mkt'){
+    var ts=sum(rows,'spend'),tr=sum(rows,'results'),to=sum(rows,'optin'),tc=tr?ts/tr:0;
+    h+=kpi('💰','Total Spend',INR(ts),'Ads deployed today','kc1');
+    h+=kpi('🎯','Results',tr,'Conversions driven','kc2');
+    h+=kpi('📥','Optins',to,'Leads captured','kc3');
+    h+=kpi('📊','Blended CPR',tc?INR(tc):'—','Cost per result','kc4');
+  }else{
+    var tc2=sum(rows,'conversions'),tr2=sum(rows,'totalRevenue'),ts2=sum(rows,'spend'),tv=sum(rows,'totalConvVal');
+    var tR=ts2?tr2/ts2:0;
+    h+=kpi('🔄','Conversions',tc2,'Deals closed','kc2');
+    h+=kpi('💵','Revenue',INR(tr2),'Total generated','kc2');
+    h+=kpi('📦','Conv. Value',INR(tv),'Pipeline value','kc3');
+    h+=kpi('📈','ROAS',tR?tR.toFixed(2)+'x':'—','Return on spend','kc4');
+  }
+  return h+'</div>';
+}
+
+function kpi(icon,label,val,sub,cls){
+  return'<div class="kpi-card '+cls+'">'+
+    '<div class="kpi-icon">'+icon+'</div>'+
+    '<div class="kpi-label">'+label+'</div>'+
+    '<div class="kpi-value">'+val+'</div>'+
+    '<div class="kpi-sub">'+sub+'</div>'+
+  '</div>';
+}
+
+function mktTable(rows,title,showTotal){
+  var maxS=rows.length?Math.max.apply(null,rows.map(function(r){return r.spend||0;})):1;
+  var h='<div class="tcard">';
+  if(title){
+    var ts=sum(rows,'spend');
+    h+='<div class="tcard-hdr"><span class="tcard-title">'+title+'</span>';
+    h+='<div class="tcard-pills"><span class="tbadge">'+(rows?rows.length:0)+' courses</span>';
+    if(ts)h+='<span class="tbadge tbadge-hi">'+INR(ts)+'</span>';
+    h+='</div></div>';
+  }
+  if(!rows||!rows.length)return h+'<div class="empty">No data available.</div></div>';
+  h+='<table><thead><tr><th>Course</th><th>Spend</th><th>Optins</th><th>Results</th><th>CPR</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var pct=maxS>0?Math.round(((r.spend||0)/maxS)*72):0;
+    h+='<tr>';
+    h+='<td><div class="cname">'+r.name+'</div><div class="clabel">'+r.label+'</div></td>';
+    h+='<td class="sc"><div class="sb" style="width:'+pct+'%"></div><span class="sv">'+INR(r.spend)+'</span></td>';
+    h+='<td>'+r.optin+'</td><td>'+r.results+'</td>';
+    h+='<td>'+(r.cpr?INR(r.cpr):'—')+'</td></tr>';
+  });
+  if(showTotal){
+    var ts=sum(rows,'spend'),tr=sum(rows,'results'),to=sum(rows,'optin'),tc=tr?ts/tr:0;
+    h+='<tr class="total-row"><td>Total</td><td>'+INR(ts)+'</td><td>'+to+'</td><td>'+tr+'</td><td>'+(tc?INR(tc):'—')+'</td></tr>';
+  }
+  return h+'</tbody></table></div>';
+}
+
+function convTable(rows, title){
+  if(!rows||!rows.length)
+    return'<div class="empty">No conversion data.</div>';
+
+  var tSp=sum(rows,'spend'), tRev=sum(rows,'totalRevenue');
+  var tRoas=tSp?tRev/tSp:0;
+
+  var h='';
+
+  // Minimal section header
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">';
+  h+='<div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:1.5px;">'+title+'</div>';
+  if(tRoas>0){
+    var rColor=tRoas>=2?'#34d399':tRoas>=1?'#fbbf24':'#f87171';
+    h+='<div style="font-size:12px;font-weight:800;color:'+rColor+';">Blended RoAS '+tRoas.toFixed(2)+'x</div>';
+  }
+  h+='</div>';
+
+  rows.forEach(function(r){
+    var roasColor=r.roas>=2?'#34d399':r.roas>=1?'#fbbf24':'#f87171';
+    var roasBg   =r.roas>=2?'rgba(52,211,153,0.1)':r.roas>=1?'rgba(251,191,36,0.1)':'rgba(248,113,113,0.1)';
+
+    h+='<div class="conv-course-card">';
+
+    // Single header line: name + type + RoAS
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">';
+    h+='<div style="display:flex;align-items:center;gap:10px;">';
+    h+='<span style="font-size:14px;font-weight:800;color:#fff;">'+r.name+'</span>';
+    if(r.convType)
+      h+='<span style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);'+
+         'border-radius:20px;padding:2px 9px;font-size:11px;color:rgba(255,255,255,0.5);">'+r.convType+'</span>';
+    h+='</div>';
+    h+='<div style="background:'+roasBg+';border:1px solid '+roasColor+'55;border-radius:10px;'+
+       'padding:5px 13px;font-size:13px;font-weight:900;color:'+roasColor+';">'+
+       (r.roas?r.roas.toFixed(2)+'x':'—')+' <span style="font-size:9px;opacity:.6;font-weight:600;">RoAS</span></div>';
+    h+='</div>';
+
+    // All metrics in ONE flat responsive grid — 4 cols on wide, wraps on narrow
+    var metrics=[
+      {l:'Spend',        v:INR(r.spend),          c:'#fff'},
+      {l:'Optins',       v:r.optin,                c:'#fff'},
+      {l:'Results',      v:r.result,               c:'#fff'},
+      {l:'CPR',          v:INR(r.cpr),             c:'#fff'},
+      {l:'Conversions',  v:r.conversions,           c:'#fff'},
+      {l:'Conv. Rate',   v:PCT(r.convRate),         c:'#c4b5fd'},
+      {l:'CAC',          v:INR(r.cac),             c:'#fff'},
+      {l:'Val / Conv',   v:INR(r.valuePerConv),    c:'#fff'},
+      {l:'Conv. Value',  v:INR(r.totalConvVal),    c:'#34d399'},
+      {l:'Rev. via Reg', v:INR(r.revThruReg),      c:'#34d399'},
+      {l:'Total Revenue',v:INR(r.totalRevenue),    c:'#34d399'}
+    ];
+
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;">';
+    metrics.forEach(function(m){
+      h+='<div style="padding:10px 13px;background:rgba(255,255,255,0.04);'+
+         'border:1px solid rgba(255,255,255,0.07);border-radius:10px;">';
+      h+='<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.32);'+
+         'text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">'+m.l+'</div>';
+      h+='<div style="font-size:15px;font-weight:800;color:'+m.c+';">'+m.v+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+
+    h+='</div>'; // end card
+  });
+
+  return h;
+}
+
+
+function webCards(tabs,g){
+  if(!tabs||!tabs.length)return empty('No webinar data for '+g+'.');
+  var h='';
+
+  var moneyKeys=['spend','revenue','cpr','cost','price','value','amount','sale','gross','net'];
+  var pctKeys=['conversion rate','purchase rate','lead to purchase','click rate','open rate'];
+  // Retention cols — show count + (X%) calculated from paired showup col
+  var retentionKeys=['retention','last 45','last 30','last 60'];
+
+  function isMoneyCol(hdr){
+    var lo=hdr.toLowerCase();
+    // Explicitly exclude attendance/count columns even if they contain money keywords
+    var excludeWords=['show up','retention','showup','attendance','viewers','leads','purchase','registrations','registration','interest','conversions','results'];
+    if(excludeWords.some(function(e){return lo.indexOf(e)!==-1;})) return false;
+    return moneyKeys.some(function(k){return lo.indexOf(k)!==-1;});
+  }
+  function isPctCol(hdr){
+    var lo=hdr.toLowerCase();
+    // Only mark as % if header itself contains "rate" as a standalone word
+    // or explicitly matches known pct column names
+    return pctKeys.some(function(k){return lo.indexOf(k)!==-1;})
+      || /rate/.test(lo) || /ratio/.test(lo);
+  }
+  function isRetentionCol(hdr){
+    var lo=hdr.toLowerCase();
+    return retentionKeys.some(function(k){return lo.indexOf(k)!==-1;});
+  }
+  function rawNum(val){
+    if(val===''||val===null||val===undefined) return null;
+    var n=parseFloat((val+'').replace(/[₹,%\s]/g,'').replace(/,/g,''));
+    return isNaN(n)?null:n;
+  }
+  function fmtNum(n){
+    if(n===null||n===undefined) return '—';
+    if(n===Math.floor(n)) return n.toLocaleString('en-IN');
+    return n.toLocaleString('en-IN',{minimumFractionDigits:0,maximumFractionDigits:2});
+  }
+  function fmtCell(val,hdr){
+    if(val===''||val===null||val===undefined||val==='—') return '—';
+    var s=(val+'').trim();
+    if(!s) return '—';
+    var hasRupee=s.indexOf('₹')!==-1;
+    var hasPct=s.indexOf('%')!==-1;
+    var n=rawNum(val);
+    if(n===null) return s;
+    if(hasRupee||isMoneyCol(hdr)) return '₹'+fmtNum(n);
+    if(hasPct||isPctCol(hdr)){
+      var pv=(!hasPct && n>0 && n<1)?n*100:n;
+      return (pv%1===0?pv.toFixed(0):pv.toFixed(2))+'%';
+    }
+    return fmtNum(n);
+  }
+
+  // Find the paired show-up column for a retention column
+  // e.g. "Day 1 - Last 45 mins Retention" → look for "Day 1 - Show Up"
+  function findShowUpForRetention(headers, retColHdr){
+    var lo=retColHdr.toLowerCase();
+    // Extract day prefix: "day 1", "day 2", "vip", or none
+    var prefix='';
+    var m=lo.match(/^(day\s*\d+|vip)/);
+    if(m) prefix=m[1];
+    // Find a showup col with same prefix
+    for(var i=0;i<headers.length;i++){
+      var hlo=headers[i].toLowerCase();
+      if(hlo.indexOf('show up')===-1) continue;
+      if(!prefix) return i; // no prefix — first showup col
+      if(hlo.indexOf(prefix)!==-1) return i;
+    }
+    return -1;
+  }
+
+  tabs.forEach(function(tab){
+    if(!tab.headers||!tab.rows||!tab.rows.length)return;
+
+    var roasIdx=-1, dateIdx=0, nameIdx=-1;
+    tab.headers.forEach(function(hdr,i){
+      var lo=hdr.toLowerCase();
+      if(lo==='roas') roasIdx=i;
+      if(lo==='webinar name'||lo==='name') nameIdx=i;
+    });
+
+    h+='<div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);'+
+       'text-transform:uppercase;letter-spacing:2px;margin-bottom:16px;">'+tab.tabName+'</div>';
+
+    tab.rows.forEach(function(row,ri){
+      var roas=roasIdx>=0?rawNum(row[roasIdx])||0:0;
+      var roasColor  =roas>=2?'#34d399':roas>=1?'#fbbf24':'#f87171';
+      var roasBg     =roas>=2?'rgba(52,211,153,0.12)':roas>=1?'rgba(251,191,36,0.12)':'rgba(248,113,113,0.12)';
+      var roasBorder =roas>=2?'rgba(52,211,153,0.25)':roas>=1?'rgba(251,191,36,0.25)':'rgba(248,113,113,0.25)';
+      var dateStr=row[dateIdx]||'';
+      var nameStr=nameIdx>=0?row[nameIdx]:tab.tabName;
+
+      h+='<div class="webinar-card" style="margin-bottom:20px;">';
+
+      // Card header
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;'+
+         'margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.08);">';
+      h+='<div>';
+      h+='<div style="font-size:16px;font-weight:800;color:#fff;margin-bottom:4px;">'+nameStr+'</div>';
+      h+='<div style="font-size:12px;color:rgba(255,255,255,0.4);">'+dateStr+'</div>';
+      h+='</div>';
+      if(roasIdx>=0){
+        h+='<div style="background:'+roasBg+';border:1px solid '+roasBorder+';'+
+           'border-radius:16px;padding:10px 20px;text-align:center;min-width:80px;">';
+        h+='<div style="font-size:22px;font-weight:900;color:'+roasColor+';letter-spacing:-1px;">'+
+           (roas?roas.toFixed(2)+'x':'—')+'</div>';
+        h+='<div style="font-size:9px;font-weight:700;color:'+roasColor+';opacity:.65;'+
+           'text-transform:uppercase;letter-spacing:1.5px;margin-top:3px;">RoAS</div>';
+        h+='</div>';
+      }
+      h+='</div>';
+
+      // Metrics grid
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">';
+      tab.headers.forEach(function(hdr,ci){
+        var lo=hdr.toLowerCase();
+        if(ci===dateIdx||lo==='webinar name'||lo==='name'||lo==='roas') return;
+
+        var rawVal=row[ci];
+        var isMoney=isMoneyCol(hdr)||(rawVal+'').indexOf('₹')!==-1;
+        var isRet=isRetentionCol(hdr);
+        var isSpendCpr=lo==='spend'||lo==='cpr'||lo.indexOf('cost')!==-1;
+
+        var valColor=isMoney&&!isSpendCpr?'#34d399':'rgba(255,255,255,0.95)';
+        var formatted=fmtCell(rawVal,hdr);
+
+        // For retention — add percentage in brackets
+        var retPct='';
+        if(isRet){
+          var showUpIdx=findShowUpForRetention(tab.headers,hdr);
+          if(showUpIdx>=0){
+            var showUpN=rawNum(row[showUpIdx]);
+            var retN=rawNum(rawVal);
+            if(showUpN&&showUpN>0&&retN!==null){
+              var pct=Math.round((retN/showUpN)*100);
+              retPct=' <span style="font-size:13px;color:rgba(255,255,255,0.45);font-weight:500;">('+pct+'%)</span>';
+            }
+          }
+        }
+
+        h+='<div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);'+
+           'border-radius:14px;padding:16px 18px;">';
+        h+='<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.38);'+
+           'text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;line-height:1.4;">'+hdr+'</div>';
+        h+='<div style="font-size:18px;font-weight:800;color:'+valColor+';letter-spacing:-.3px;">'+
+           formatted+retPct+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      h+='</div>';
+    });
+    h+='<div style="height:12px;"></div>';
+  });
+
+  return h||empty('No webinar data for '+g+'.');
+}
+function mt(l,v){return'<div class="metric"><div class="metric-lbl">'+l+'</div><div class="metric-val">'+v+'</div></div>';}
+function empty(m){return'<div class="empty">'+m+'</div>';}
+
+function buildDailyLog(days, g){
+  if(!days||!days.length) return empty('No daily data available.');
+  var h='<div style="display:flex;flex-direction:column;gap:10px;">';
+  days.forEach(function(day){
+    // Day header row
+    h+='<div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);'+
+       'border-radius:16px;overflow:hidden;">';
+    // Date label
+    h+='<div style="padding:12px 18px;background:rgba(255,255,255,0.04);'+
+       'border-bottom:1px solid rgba(255,255,255,0.07);'+
+       'display:flex;align-items:center;justify-content:space-between;">';
+    h+='<span style="font-size:12px;font-weight:700;color:#fff;">'+day.date+'</span>';
+    var ts=day.rows.reduce(function(a,r){return a+(r.spend||0);},0);
+    h+='<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.5);">'+INR(ts)+'</span>';
+    h+='</div>';
+    // Course rows as a clean inline table
+    h+='<table style="width:100%;border-collapse:collapse;">';
+    h+='<thead><tr>';
+    ['Course','Spend','Optins','Results','CPR'].forEach(function(col,ci){
+      h+='<th style="padding:8px 18px;text-align:'+(ci===0?'left':'right')+';'+
+         'font-size:9px;font-weight:700;color:rgba(255,255,255,0.3);'+
+         'text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.06);">'+col+'</th>';
+    });
+    h+='</tr></thead><tbody>';
+    day.rows.forEach(function(r,ri){
+      var bg=ri%2===0?'rgba(255,255,255,0.01)':'transparent';
+      h+='<tr style="background:'+bg+';">';
+      h+='<td style="padding:10px 18px;text-align:left;">';
+      h+='<div style="font-size:13px;font-weight:700;color:#fff;">'+r.name+'</div>';
+      h+='<div style="font-size:10px;color:rgba(196,181,253,0.7);margin-top:2px;">'+r.label+'</div>';
+      h+='</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:700;color:#fff;">'+INR(r.spend)+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);">'+r.optin+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);">'+r.results+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);">'+
+         (r.cpr?INR(r.cpr):'—')+'</td>';
+      h+='</tr>';
+    });
+    // Day total row
+    if(day.rows.length>1){
+      var ts=day.rows.reduce(function(a,r){return a+(r.spend||0);},0);
+      var tr=day.rows.reduce(function(a,r){return a+(r.results||0);},0);
+      var to=day.rows.reduce(function(a,r){return a+(r.optin||0);},0);
+      var tc=tr?ts/tr:0;
+      h+='<tr style="background:rgba(255,255,255,0.04);border-top:1px solid rgba(255,255,255,0.08);">';
+      h+='<td style="padding:10px 18px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);">Total</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:700;color:rgba(196,181,253,0.9);">'+INR(ts)+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);">'+to+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);">'+tr+'</td>';
+      h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);">'+
+         (tc?INR(tc):'—')+'</td>';
+      h+='</tr>';
+    }
+    h+='</tbody></table></div>';
+  });
+  return h+'</div>';
+}
+
+function sum(rows,key){return rows.reduce(function(a,r){return a+(Number(r[key])||0);},0);}
+function togWk(h){var b=h.nextElementSibling,c=h.querySelector('.chev'),o=b.classList.contains('open');b.classList.toggle('open',!o);c.classList.toggle('open',!o);}
+function getCurMonth(){
+  var m=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  var n=new Date();return m[n.getMonth()]+' '+String(n.getFullYear()).slice(-2);
+}
+
+/* Video background via Drive iframe — no JS needed */
+/* Fallback gradient in case iframe is blocked */
+setTimeout(function(){
+  var wrap = document.getElementById('bgVideoWrap');
+  if(!wrap) return;
+  // Check if iframe loaded — if not, show gradient
+}, 3000);
+
+/* ══════════════════════════════════════════════════
+   LIQUID BLOB CANVAS — matches visionOS glass theme
+   Slow-moving colour blobs behind frosted glass cards
+══════════════════════════════════════════════════ */
+(function(){
+  try {
+  var c = document.getElementById('bgCanvas');
+  if(!c) return;
+  var ctx = c.getContext('2d');
+  var W, H, blobs = [], t = 0;
+
+  /* Palette: very subtle, deep tones — won't overpower glass */
+  var COLORS = [
+    [ 60,  40, 120],  // deep indigo
+    [ 30,  80, 140],  // deep blue
+    [ 80,  30, 120],  // deep purple
+    [ 20,  90,  90],  // deep teal
+    [ 50,  50, 130],  // deep periwinkle
+    [ 90,  20,  80],  // deep magenta
+    [ 20,  80, 130],  // deep cyan
+    [ 70,  20, 110],  // deep violet
+  ];
+
+  function resize(){
+    W = c.width = window.innerWidth;
+    H = c.height = window.innerHeight;
+  }
+
+  function initBlobs(){
+    blobs = [];
+    var count = 7;
+    for(var i = 0; i < count; i++){
+      var col = COLORS[i % COLORS.length];
+      blobs.push({
+        x:  Math.random() * W,
+        y:  Math.random() * H,
+        r:  Math.min(W,H) * (0.25 + Math.random() * 0.25),
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        col: col,
+        phase:  Math.random() * Math.PI * 2,
+        speed:  0.0005 + Math.random() * 0.0008,
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.001 + Math.random() * 0.001,
+        scaleX: 0.8 + Math.random() * 0.4,
+        scaleY: 0.8 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  function drawFrame(){
+    t += 0.005;
+    ctx.clearRect(0, 0, W, H);
+
+    /* Dark navy base */
+    var bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0,   '#0f1320');
+    bg.addColorStop(0.5, '#141828');
+    bg.addColorStop(1,   '#111a2a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    /* Draw glowing blobs */
+    ctx.globalCompositeOperation = 'screen';
+    blobs.forEach(function(b){
+      /* Animate position with Lissajous-style motion */
+      b.wobble += b.wobbleSpeed;
+      b.phase  += b.speed;
+
+      var tx = Math.sin(b.phase) * W * 0.35 + W * 0.5
+             + Math.cos(b.wobble * 0.7) * W * 0.12;
+      var ty = Math.cos(b.phase * 0.8) * H * 0.35 + H * 0.5
+             + Math.sin(b.wobble * 0.5) * H * 0.10;
+
+      /* Very slow lerp — barely perceptible movement */
+      b.x += (tx - b.x) * 0.003;
+      b.y += (ty - b.y) * 0.003;
+
+      /* Pulsing size */
+      var pulse = 1 + Math.sin(b.wobble * 1.3) * 0.12;
+      var rx = b.r * b.scaleX * pulse;
+      var ry = b.r * b.scaleY * pulse;
+
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.scale(rx / b.r, ry / b.r);
+
+      var grad = ctx.createRadialGradient(0, 0, 0, 0, 0, b.r);
+      var col = b.col;
+      grad.addColorStop(0,   'rgba('+col[0]+','+col[1]+','+col[2]+',0.7)');
+      grad.addColorStop(0.4, 'rgba('+col[0]+','+col[1]+','+col[2]+',0.4)');
+      grad.addColorStop(0.75,'rgba('+col[0]+','+col[1]+','+col[2]+',0.12)');
+      grad.addColorStop(1,   'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+
+      ctx.beginPath();
+      ctx.arc(0, 0, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.restore();
+    });
+
+    ctx.globalCompositeOperation = 'source-over';
+
+    /* Subtle dark vignette */
+    var vig = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.65);
+    vig.addColorStop(0,'rgba(0,0,0,0)');
+    vig.addColorStop(0.6,'rgba(0,0,0,0.15)');
+    vig.addColorStop(1,'rgba(0,0,0,0.55)');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = vig;
+    ctx.fillRect(0,0,W,H);
+    /* Extra dark overlay so bg never competes with cards */
+    ctx.fillStyle = 'rgba(8,12,22,0.35)';
+    ctx.fillRect(0,0,W,H);
+
+    requestAnimationFrame(drawFrame);
+  }
+
+  resize();
+  initBlobs();
+  drawFrame();
+  window.addEventListener('resize', function(){ resize(); initBlobs(); });
+  }catch(e){ document.getElementById('bgCanvas').style.display='none'; }
+})();
+</script>
+</body>
+</html>
