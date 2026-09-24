@@ -1,0 +1,534 @@
+// ============================================================
+// SOCIAL EAGLE — DAILY ADS REPORT (AI + DM + SOS)
+// Combined backup — all three reports in one file
+// Functions are identical to originals; nothing changed.
+// ============================================================
+
+
+// ────────────────────────────────────────────────────────────
+// AI REPORT
+// ────────────────────────────────────────────────────────────
+
+function checkAndSendReport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const currentHour = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "H"));
+  const currentMinute = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "m"));
+  const nowInMinutes = currentHour * 60 + currentMinute;
+  const windowStart = 9 * 60 + 30;
+  const windowEnd = 13 * 60;
+  if (nowInMinutes < windowStart || nowInMinutes > windowEnd) return;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const targetDateStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d-MMM-yyyy");
+  const lastSentDate = props.getProperty("lastSentDate");
+  if (lastSentDate === targetDateStr) return;
+
+  const monthName = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+  const yearShort = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "yy");
+  let sheet = ss.getSheetByName(monthName + " " + yearShort);
+  if (!sheet) {
+    const shortMonth = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMM").toUpperCase();
+    sheet = ss.getSheetByName(shortMonth + " " + yearShort);
+  }
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+
+  const AI_COURSES = ["AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"];
+  const RESULT_LABELS = {
+    "AI":          "Call Bookings",
+    "AI FOR KIDS": "Call Bookings",
+    "AI WORKSHOP": "Registrations",
+    "AI FOR BO":   "Registrations",
+    "AI SEMINAR BO": "Seminar Registrations"
+  };
+
+  let monthlyCourses = [];
+  for (let r = 2; r <= 12; r++) {
+    if (!data[r]) continue;
+    const courseName = (data[r][0] || "").toString().trim();
+    if (AI_COURSES.includes(courseName.toUpperCase())) {
+      const monthlySpend = Number(data[r][1]) || 0;
+      const totalResult  = Number(data[r][9]) || 0;
+      const totalOptin   = Number(data[r][13]) || 0;
+      if (monthlySpend > 0) {
+        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+      }
+    }
+  }
+
+  let dateRowIndices = [];
+  for (let i = 15; i < data.length; i++) {
+    if (data[i][0] instanceof Date) {
+      dateRowIndices.push({ row: i, dateStr: Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), "d-MMM-yyyy") });
+    }
+  }
+  const blockIndex = dateRowIndices.findIndex(d => d.dateStr === targetDateStr);
+  if (blockIndex === -1) return;
+  const startRow = dateRowIndices[blockIndex].row;
+  const endRow = (blockIndex + 1 < dateRowIndices.length) ? dateRowIndices[blockIndex + 1].row : data.length;
+
+  let optinCol = 6;
+  for (let i = 0; i < 20; i++) {
+    if (!data[i]) continue;
+    const row = data[i].map(c => (c || "").toString().toLowerCase().trim());
+    if (row[0] === "date" && (row[1] === "course name" || row[1] === "course")) {
+      for (let j = 0; j < row.length; j++) { if (row[j] === "optin" || row[j] === "optins") { optinCol = j; break; } }
+      break;
+    }
+  }
+
+  const isFilled = (v) => v !== "" && v !== null && v !== undefined;
+
+  let yesterdayCourses = [];
+  for (let r = startRow; r < endRow; r++) {
+    const courseName = (data[r][1] || "").toString().trim();
+    if (!AI_COURSES.includes(courseName.toUpperCase())) continue;
+    const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
+    if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
+      Logger.log("AI not ready — " + courseName + ": spend=" + spendCell + " results=" + resultsCell + " optin=" + optinCell);
+      return;
+    }
+    const spend = Number(spendCell) || 0;
+    if (spend <= 0) continue;
+    yesterdayCourses.push({ name: courseName, spend, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+  }
+  if (yesterdayCourses.length === 0) return;
+
+  const dayOfWeek = yesterday.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(yesterday);
+  monday.setDate(yesterday.getDate() - daysFromMonday);
+
+  let weeklyData = {};
+  AI_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  for (let d of dateRowIndices) {
+    const blockDate = new Date(d.dateStr);
+    if (blockDate >= monday && blockDate <= yesterday) {
+      const bIdx = dateRowIndices.indexOf(d);
+      const bStart = d.row;
+      const bEnd = (bIdx + 1 < dateRowIndices.length) ? dateRowIndices[bIdx + 1].row : data.length;
+      for (let r = bStart; r < bEnd; r++) {
+        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        if (AI_COURSES.includes(cName) && Number(data[r][2]) > 0) {
+          weeklyData[cName].spend   += Number(data[r][2]) || 0;
+          weeklyData[cName].results += Number(data[r][4]) || 0;
+          weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+        }
+      }
+    }
+  }
+
+  const weeklyCourses = AI_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
+  const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
+  const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
+
+  const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  const mondayStr = Utilities.formatDate(monday, Session.getScriptTimeZone(), "d MMM");
+  const yesterdayDisplay = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d MMM yyyy");
+  const CARD = "background:#ffffff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(201,100,66,0.08);border:1px solid #f0e8e3;";
+  const SECTION_TITLE = "font-size:11px;font-weight:700;color:#c96442;text-transform:uppercase;letter-spacing:1.5px;";
+  const TH = "padding:10px 12px;color:#7c3aed;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;background:linear-gradient(135deg,#fdf4f0,#f5f0fa);";
+  const TD = "padding:11px 12px;color:#1a1a2e;border-bottom:1px solid #f5ede8;";
+
+  const buildRows = (courses, labels) => courses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = labels[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const buildMonthlyRows = (courses, labels) => courses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = labels[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const weeklyTotalsRow = (spend, optin, results, cpr) =>
+    "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(spend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + optin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + results + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (cpr > 0 ? inr(cpr) : "&mdash;") + "</td></tr>";
+
+  const buildTable = (rows) =>
+    "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Course</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+
+  const buildEmail = (brand, yRows, wRows, mRows, sheetName) => {
+    const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+    let html = "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:700px;margin:0 auto;background:#f5f0eb;padding:28px 20px;'>";
+    html += "<div style='background:linear-gradient(135deg,#c96442 0%,#8b5cf6 100%);border-radius:20px;padding:32px 36px;margin-bottom:24px;'>";
+    html += "<div style='color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;margin-bottom:8px;font-weight:600;'>Social Eagle &middot; " + brand + " Courses</div>";
+    html += "<div style='color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;'>Daily Ads Report</div>";
+    html += "<div style='color:rgba(255,255,255,0.85);font-size:14px;font-weight:500;'>" + yesterdayDisplay + "</div></div>";
+    html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128202;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Yesterday's Performance</span></div>" + buildTable(yRows) + "</div>";
+    html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128197;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Weekly Performance &mdash; " + mondayStr + " to " + yesterdayDisplay + "</span></div>" + buildTable(wRows) + "</div>";
+    html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128200;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Month-to-Date &mdash; " + monthLabel + "</span></div>" + buildTable(mRows) + "</div>";
+    html += "<div style='text-align:center;padding-top:8px;'><span style='color:#b09a8e;font-size:11px;'>Auto-generated from " + sheetName + " &middot; Social Eagle Ads Dashboard</span></div></div>";
+    return html;
+  };
+
+  const yRows = buildRows(yesterdayCourses, RESULT_LABELS);
+  const wRows = buildRows(weeklyCourses, RESULT_LABELS) + weeklyTotalsRow(weeklyTotalSpend, weeklyTotalOptin, weeklyTotalResults, weeklyTotalCPR);
+  const mRows = buildMonthlyRows(monthlyCourses, RESULT_LABELS);
+
+  MailApp.sendEmail({
+    to: "sakeel@socialeagle.ai,manoj@socialeagle.ai,thiru@socialeagle.ai",
+    cc: "sathish@socialeagle.in,vishnu@socialeagle.in,antonywillbert@socialeagle.in,jame@socialeagle.in",
+    subject: "AI Ads Report \u2014 " + yesterdayDisplay,
+    htmlBody: buildEmail("AI", yRows, wRows, mRows, sheet.getName())
+  });
+
+  props.setProperty("lastSentDate", targetDateStr);
+}
+
+
+// ────────────────────────────────────────────────────────────
+// DM REPORT
+// ────────────────────────────────────────────────────────────
+
+function checkAndSendDMReport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const currentHour = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "H"));
+  const currentMinute = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "m"));
+  const nowInMinutes = currentHour * 60 + currentMinute;
+  const windowStart = 9 * 60 + 30;
+  const windowEnd = 13 * 60;
+  if (nowInMinutes < windowStart || nowInMinutes > windowEnd) return;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const targetDateStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d-MMM-yyyy");
+  const lastSentDate = props.getProperty("dmLastSentDate");
+  if (lastSentDate === targetDateStr) return;
+
+  const monthName = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+  const yearShort = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "yy");
+  let sheet = ss.getSheetByName(monthName + " " + yearShort);
+  if (!sheet) {
+    const shortMonth = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMM").toUpperCase();
+    sheet = ss.getSheetByName(shortMonth + " " + yearShort);
+  }
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+  const DM_COURSES = ["DM", "DM BO PAID", "DM HW PAID", "DM 2DC"];
+  const RESULT_LABELS = {
+    "DM":        "Call Bookings",
+    "DM BO PAID":"Call Bookings",
+    "DM HW PAID":"Call Bookings",
+    "DM 2DC":    "Registrations"
+  };
+
+  let monthlyCourses = [];
+  for (let r = 2; r <= 12; r++) {
+    if (!data[r]) continue;
+    const courseName = (data[r][0] || "").toString().trim();
+    if (DM_COURSES.includes(courseName.toUpperCase())) {
+      const monthlySpend = Number(data[r][1]) || 0;
+      const totalResult  = Number(data[r][9]) || 0;
+      const totalOptin   = Number(data[r][13]) || 0;
+      if (monthlySpend > 0) {
+        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+      }
+    }
+  }
+
+  let dateRowIndices = [];
+  for (let i = 15; i < data.length; i++) {
+    if (data[i][0] instanceof Date) {
+      dateRowIndices.push({ row: i, dateStr: Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), "d-MMM-yyyy") });
+    }
+  }
+
+  const blockIndex = dateRowIndices.findIndex(d => d.dateStr === targetDateStr);
+  if (blockIndex === -1) return;
+  const startRow = dateRowIndices[blockIndex].row;
+  const endRow = (blockIndex + 1 < dateRowIndices.length) ? dateRowIndices[blockIndex + 1].row : data.length;
+
+  let optinCol = 6;
+  for (let i = 0; i < 20; i++) {
+    if (!data[i]) continue;
+    const row = data[i].map(c => (c || "").toString().toLowerCase().trim());
+    if (row[0] === "date" && (row[1] === "course name" || row[1] === "course")) {
+      for (let j = 0; j < row.length; j++) { if (row[j] === "optin" || row[j] === "optins") { optinCol = j; break; } }
+      break;
+    }
+  }
+
+  const isFilled = (v) => v !== "" && v !== null && v !== undefined;
+
+  let yesterdayCourses = [];
+  for (let r = startRow; r < endRow; r++) {
+    const courseName = (data[r][1] || "").toString().trim();
+    if (!DM_COURSES.includes(courseName.toUpperCase())) continue;
+    const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
+    if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
+      Logger.log("DM not ready — " + courseName + ": spend=" + spendCell + " results=" + resultsCell + " optin=" + optinCell);
+      return;
+    }
+    yesterdayCourses.push({ name: courseName, spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+  }
+  if (yesterdayCourses.length === 0) return;
+
+  const dayOfWeek = yesterday.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(yesterday);
+  monday.setDate(yesterday.getDate() - daysFromMonday);
+
+  let weeklyData = {};
+  DM_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  for (let di = 0; di < dateRowIndices.length; di++) {
+    const d = dateRowIndices[di];
+    const blockDate = new Date(d.dateStr);
+    if (blockDate >= monday && blockDate <= yesterday) {
+      const bStart = d.row;
+      const bEnd = (di + 1 < dateRowIndices.length) ? dateRowIndices[di + 1].row : data.length;
+      for (let r = bStart; r < bEnd; r++) {
+        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        if (DM_COURSES.includes(cName) && Number(data[r][2]) > 0) {
+          weeklyData[cName].spend   += Number(data[r][2]) || 0;
+          weeklyData[cName].results += Number(data[r][4]) || 0;
+          weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+        }
+      }
+    }
+  }
+
+  const weeklyCourses = DM_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
+  const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
+  const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
+
+  const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  const mondayStr = Utilities.formatDate(monday, Session.getScriptTimeZone(), "d MMM");
+  const yesterdayDisplay = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d MMM yyyy");
+  const CARD = "background:#ffffff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(201,100,66,0.08);border:1px solid #f0e8e3;";
+  const SECTION_TITLE = "font-size:11px;font-weight:700;color:#c96442;text-transform:uppercase;letter-spacing:1.5px;";
+  const TH = "padding:10px 12px;color:#7c3aed;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;background:linear-gradient(135deg,#fdf4f0,#f5f0fa);";
+  const TD = "padding:11px 12px;color:#1a1a2e;border-bottom:1px solid #f5ede8;";
+
+  const yRows = yesterdayCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const wRows = weeklyCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td></tr>";
+
+  const mRows = monthlyCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Course</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+
+  let html = "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:700px;margin:0 auto;background:#f5f0eb;padding:28px 20px;'>";
+  html += "<div style='background:linear-gradient(135deg,#c96442 0%,#8b5cf6 100%);border-radius:20px;padding:32px 36px;margin-bottom:24px;'><div style='color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;margin-bottom:8px;font-weight:600;'>Social Eagle &middot; DM Courses</div><div style='color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;'>Daily Ads Report</div><div style='color:rgba(255,255,255,0.85);font-size:14px;font-weight:500;'>" + yesterdayDisplay + "</div></div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128202;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Yesterday's Performance</span></div>" + buildTable(yRows) + "</div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128197;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Weekly Performance &mdash; " + mondayStr + " to " + yesterdayDisplay + "</span></div>" + buildTable(wRows) + "</div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128200;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Month-to-Date &mdash; " + monthLabel + "</span></div>" + buildTable(mRows) + "</div>";
+  html += "<div style='text-align:center;padding-top:8px;'><span style='color:#b09a8e;font-size:11px;'>Auto-generated from " + sheet.getName() + " &middot; Social Eagle Ads Dashboard</span></div></div>";
+
+  MailApp.sendEmail({
+    to: "vishnu@socialeagle.in",
+    cc: "sathish@socialeagle.in,antonywillbert@socialeagle.in,jame@socialeagle.in",
+    subject: "DM Ads Report \u2014 " + yesterdayDisplay,
+    htmlBody: html
+  });
+
+  props.setProperty("dmLastSentDate", targetDateStr);
+}
+
+
+// ────────────────────────────────────────────────────────────
+// SOS REPORT
+// ────────────────────────────────────────────────────────────
+
+function checkAndSendSOSReport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const currentHour = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "H"));
+  const currentMinute = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "m"));
+  const nowInMinutes = currentHour * 60 + currentMinute;
+  const windowStart = 9 * 60 + 30;
+  const windowEnd = 13 * 60;
+  if (nowInMinutes < windowStart || nowInMinutes > windowEnd) return;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const targetDateStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d-MMM-yyyy");
+  const lastSentDate = props.getProperty("sosLastSentDate");
+  if (lastSentDate === targetDateStr) return;
+
+  const monthName = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+  const yearShort = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "yy");
+  let sheet = ss.getSheetByName(monthName + " " + yearShort);
+  if (!sheet) {
+    const shortMonth = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMM").toUpperCase();
+    sheet = ss.getSheetByName(shortMonth + " " + yearShort);
+  }
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+  const SOS_COURSES = ["SOS", "SOS MS"];
+  const RESULT_LABELS = { "SOS": "Results", "SOS MS": "Results" };
+
+  let monthlyCourses = [];
+  for (let r = 2; r <= 12; r++) {
+    if (!data[r]) continue;
+    const courseName = (data[r][0] || "").toString().trim();
+    if (SOS_COURSES.includes(courseName.toUpperCase())) {
+      const monthlySpend = Number(data[r][1]) || 0;
+      const totalResult  = Number(data[r][9]) || 0;
+      const totalOptin   = Number(data[r][13]) || 0;
+      if (monthlySpend > 0) {
+        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+      }
+    }
+  }
+
+  let dateRowIndices = [];
+  for (let i = 15; i < data.length; i++) {
+    if (data[i][0] instanceof Date) {
+      dateRowIndices.push({ row: i, dateStr: Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), "d-MMM-yyyy") });
+    }
+  }
+
+  const blockIndex = dateRowIndices.findIndex(d => d.dateStr === targetDateStr);
+  if (blockIndex === -1) return;
+  const startRow = dateRowIndices[blockIndex].row;
+  const endRow = (blockIndex + 1 < dateRowIndices.length) ? dateRowIndices[blockIndex + 1].row : data.length;
+
+  let optinCol = 6;
+  for (let i = 0; i < 20; i++) {
+    if (!data[i]) continue;
+    const row = data[i].map(c => (c || "").toString().toLowerCase().trim());
+    if (row[0] === "date" && (row[1] === "course name" || row[1] === "course")) {
+      for (let j = 0; j < row.length; j++) { if (row[j] === "optin" || row[j] === "optins") { optinCol = j; break; } }
+      break;
+    }
+  }
+
+  const isFilled = (v) => v !== "" && v !== null && v !== undefined;
+
+  let yesterdayCourses = [];
+  for (let r = startRow; r < endRow; r++) {
+    const courseName = (data[r][1] || "").toString().trim();
+    if (!SOS_COURSES.includes(courseName.toUpperCase())) continue;
+    const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
+    if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
+      Logger.log("SOS not ready — " + courseName + ": spend=" + spendCell + " results=" + resultsCell + " optin=" + optinCell);
+      return;
+    }
+    yesterdayCourses.push({ name: courseName, spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+  }
+  if (yesterdayCourses.length === 0) return;
+
+  const dayOfWeek = yesterday.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(yesterday);
+  monday.setDate(yesterday.getDate() - daysFromMonday);
+
+  let weeklyData = {};
+  SOS_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  for (let di = 0; di < dateRowIndices.length; di++) {
+    const d = dateRowIndices[di];
+    const blockDate = new Date(d.dateStr);
+    if (blockDate >= monday && blockDate <= yesterday) {
+      const bStart = d.row;
+      const bEnd = (di + 1 < dateRowIndices.length) ? dateRowIndices[di + 1].row : data.length;
+      for (let r = bStart; r < bEnd; r++) {
+        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        if (SOS_COURSES.includes(cName) && Number(data[r][2]) > 0) {
+          weeklyData[cName].spend   += Number(data[r][2]) || 0;
+          weeklyData[cName].results += Number(data[r][4]) || 0;
+          weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+        }
+      }
+    }
+  }
+
+  const weeklyCourses = SOS_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
+  const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
+  const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
+
+  const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  const mondayStr = Utilities.formatDate(monday, Session.getScriptTimeZone(), "d MMM");
+  const yesterdayDisplay = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "d MMM yyyy");
+  const CARD = "background:#ffffff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(201,100,66,0.08);border:1px solid #f0e8e3;";
+  const SECTION_TITLE = "font-size:11px;font-weight:700;color:#c96442;text-transform:uppercase;letter-spacing:1.5px;";
+  const TH = "padding:10px 12px;color:#7c3aed;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;background:linear-gradient(135deg,#fdf4f0,#f5f0fa);";
+  const TD = "padding:11px 12px;color:#1a1a2e;border-bottom:1px solid #f5ede8;";
+
+  const yRows = yesterdayCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const wRows = weeklyCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td></tr>";
+
+  const mRows = monthlyCourses.map((c, i) => {
+    const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
+    const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+  }).join("");
+
+  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Course</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
+
+  let html = "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:700px;margin:0 auto;background:#f5f0eb;padding:28px 20px;'>";
+  html += "<div style='background:linear-gradient(135deg,#c96442 0%,#8b5cf6 100%);border-radius:20px;padding:32px 36px;margin-bottom:24px;'><div style='color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;margin-bottom:8px;font-weight:600;'>Social Eagle &middot; SOS Courses</div><div style='color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;'>Daily Ads Report</div><div style='color:rgba(255,255,255,0.85);font-size:14px;font-weight:500;'>" + yesterdayDisplay + "</div></div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128202;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Yesterday's Performance</span></div>" + buildTable(yRows) + "</div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128197;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Weekly Performance &mdash; " + mondayStr + " to " + yesterdayDisplay + "</span></div>" + buildTable(wRows) + "</div>";
+  html += "<div style='" + CARD + "'><div style='margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #f5f0eb;'><span style='font-size:18px;'>&#128200;</span>&nbsp;<span style='" + SECTION_TITLE + "'>Month-to-Date &mdash; " + monthLabel + "</span></div>" + buildTable(mRows) + "</div>";
+  html += "<div style='text-align:center;padding-top:8px;'><span style='color:#b09a8e;font-size:11px;'>Auto-generated from " + sheet.getName() + " &middot; Social Eagle Ads Dashboard</span></div></div>";
+
+  MailApp.sendEmail({
+    to: "antonywillbert@socialeagle.in",
+    cc: "sathish@socialeagle.in,vishnu@socialeagle.in,jame@socialeagle.in",
+    subject: "SOS Ads Report \u2014 " + yesterdayDisplay,
+    htmlBody: html
+  });
+
+  props.setProperty("sosLastSentDate", targetDateStr);
+}
+
+
+// ────────────────────────────────────────────────────────────
+// TRIGGER SETUP — run these once after upload to restore triggers
+// ────────────────────────────────────────────────────────────
+
+function setupAllTriggers() {
+  const fns = ["checkAndSendReport", "checkAndSendDMReport", "checkAndSendSOSReport"];
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (fns.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+  });
+  fns.forEach(fn => ScriptApp.newTrigger(fn).timeBased().everyMinutes(15).create());
+  Logger.log("All 3 triggers set — every 15 min");
+}
+
+function clearAllSentMemory() {
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty("lastSentDate");
+  props.deleteProperty("dmLastSentDate");
+  props.deleteProperty("sosLastSentDate");
+  Logger.log("All sent memory cleared");
+}
