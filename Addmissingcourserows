@@ -1,0 +1,63 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// AddMissingCourseRows.gs
+// Scans the AUGUST 26 tab and adds missing "AI SEMINAR BO" row
+// to any date block that doesn't have it.
+//
+// HOW TO USE:
+//   1. Paste this into a new Apps Script file
+//   2. Run addMissingAiSeminarBoRows() once
+//   3. Verify the rows were added
+//   4. Run testMidnightRun() to fill data into the new rows
+//
+// WHAT IT DOES:
+//   - Scans every date block in the sheet
+//   - If a block has AI WORKSHOP but no AI SEMINAR BO after it → inserts the row
+//   - Leaves all data columns empty (Apps Script midnight run fills them)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function addMissingAiSeminarBoRows() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('AUGUST 26');
+
+  if (!sheet) {
+    Logger.log('❌ Sheet "AUGUST 26" not found. Check the tab name.');
+    return;
+  }
+
+  var data     = sheet.getDataRange().getValues();
+  var numRows  = data.length;
+  var inserted = 0;
+
+  // We scan from bottom to top so that inserting rows doesn't shift our indices
+  for (var i = numRows - 1; i >= 15; i--) {
+    var colB = (data[i][1] || '').toString().trim().toUpperCase();
+
+    // Found an AI WORKSHOP row
+    if (colB === 'AI WORKSHOP') {
+      // Check if the next row is AI SEMINAR BO
+      var nextRowB = (data[i + 1] ? (data[i + 1][1] || '') : '').toString().trim().toUpperCase();
+
+      if (nextRowB !== 'AI SEMINAR BO') {
+        // Insert a new row after AI WORKSHOP
+        var insertAt = i + 2; // 1-based row number after AI WORKSHOP
+        sheet.insertRowAfter(i + 1); // i is 0-based, sheet is 1-based
+
+        // Write AI SEMINAR BO in Col B of the new row
+        sheet.getRange(insertAt, 2).setValue('AI SEMINAR BO');
+
+        Logger.log('✅ Inserted AI SEMINAR BO at row ' + insertAt + ' (after AI WORKSHOP at row ' + (i + 1) + ')');
+        inserted++;
+
+        // Re-read data since we inserted a row
+        data = sheet.getDataRange().getValues();
+        numRows = data.length;
+      }
+    }
+  }
+
+  if (inserted === 0) {
+    Logger.log('✅ All date blocks already have AI SEMINAR BO — nothing to add.');
+  } else {
+    Logger.log('Done! Added ' + inserted + ' AI SEMINAR BO row(s). Now run testMidnightRun() to fill data.');
+  }
+}
