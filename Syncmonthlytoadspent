@@ -1,0 +1,299 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// SyncMonthlyToAdSpent.gs
+// Reads monthly totals from SE DAS Report summary scorecard
+// and writes them into the correct tab in the AD Spent workbooks.
+//
+// HOW IT WORKS:
+//   1. Opens SE DAS Report → finds current month tab (e.g. "SEPTEMBER 26")
+//   2. Reads summary scorecard rows 3–11 → Monthly Spend, Total Result, Total Optin per course
+//   3. Opens SE - 2026 AD Spent data → finds tab "DM - September" (and "SOS - September")
+//   4. Opens SEAI - 2026 AD Spent data → finds tab "AI - September"
+//   5. For each tab, matches course rows by Course Name (col A) and writes Spend, Result, Optin, CPR
+//
+// HOW TO TRIGGER:
+//   Option A — Run manually: call syncMonthlyToAdSpent() anytime
+//   Option B — Runs automatically via setupSyncTrigger() at 7:05 AM daily
+//              (5 mins after morningRun fills the DAS Report)
+//
+// NEW MONTH SETUP (what YOU do each month):
+//   1. Create the new tab in SE - 2026 AD Spent data named "DM - September"
+//   2. Create the new tab in SE - 2026 AD Spent data named "SOS - September"
+//   3. Create the new tab in SEAI - 2026 AD Spent data named "AI - September"
+//   4. Make sure each tab has "Course Name" in column A header
+//      and the course names in the rows below it (e.g. "DM", "DM BO PAID" etc.)
+//   THAT'S IT — the script handles the rest automatically.
+// ══════════════════════════════════════════════════════════════════════════════
+
+
+// ── SPREADSHEET IDs ───────────────────────────────────────────────────────────
+var SYNC_CONFIG = {
+  // SE DAS Report (source of truth)
+  DAS_REPORT_ID: '1s7fUe5d0pwg40D4CBzoVbXB6ZYz1Xy8hUQZ2R3Ku-w8',
+
+  // SE - 2026 AD Spent data (DM + SOS courses)
+  DM_SOS_AD_SPENT_ID: '1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM',
+
+  // SEAI - 2026 AD Spent data (AI courses)
+  AI_AD_SPENT_ID: '1mBYUJ2QECvYrH6ALdVel1qSM7oRyrMfPdnjeJbDWzNY',
+};
+
+// ── COURSE → AD SPENT WORKBOOK + TAB PREFIX MAPPING ──────────────────────────
+// Each course maps to which workbook it lives in and what the tab prefix is.
+// Tab name = prefix + " - " + monthName  e.g. "DM - September"
+var COURSE_TAB_MAP = {
+  'DM':        { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM BO PAID':{ workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM HW PAID':{ workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM 2DC':    { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'SOS':       { workbook: 'DM_SOS', tabPrefix: 'SOS' },
+  'SOS MS':    { workbook: 'DM_SOS', tabPrefix: 'SOS' },
+  'AI':        { workbook: 'AI',     tabPrefix: 'AI'  },
+  'AI WORKSHOP':{ workbook: 'AI',    tabPrefix: 'AI'  },
+  'AI FOR BO': { workbook: 'AI',     tabPrefix: 'AI'  },
+  'AI SEMINAR BO':{ workbook: 'AI',  tabPrefix: 'AI'  },
+};
+
+// ── SUMMARY SCORECARD COLUMN POSITIONS (0-indexed) ───────────────────────────
+// Based on SE DAS Report layout:
+// A=Course Name, B=Monthly Spend, J=Total Result, N=Total Optin
+var SUMMARY_COLS = {
+  courseName:   0,   // col A
+  monthlySpend: 1,   // col B
+  totalResult:  9,   // col J
+  totalOptin:   13,  // col N
+};
+
+// Summary rows: 3–11 (0-indexed: rows 2–10)
+var SUMMARY_ROW_START = 2;  // 0-indexed (row 3 in sheet)
+var SUMMARY_ROW_END   = 10; // 0-indexed (row 11 in sheet)
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN FUNCTION — call this manually or via trigger
+// ══════════════════════════════════════════════════════════════════════════════
+function syncMonthlyToAdSpent() {
+  try {
+    var tz = Session.getScriptTimeZone();
+
+    // ── Step 1: Determine current month name ─────────────────────────────────
+    // We use yesterday's date because on the 1st of the month,
+    // we still want to sync the previous (just-finished) month.
+    var today = new Date();
+    var targetDate = new Date(today);
+    if (today.getDate() === 1) {
+      // First day of month → sync the previous month
+      targetDate.setDate(0); // goes to last day of previous month
+    }
+
+    var monthName = Utilities.formatDate(targetDate, tz, 'MMMM'); // e.g. "September"
+    var yearShort = Utilities.formatDate(targetDate, tz, 'yy');    // e.g. "26"
+    var tabName   = monthName.toUpperCase() + ' ' + yearShort;     // e.g. "SEPTEMBER 26"
+
+    Logger.log('═══ syncMonthlyToAdSpent ═══');
+    Logger.log('Target month: ' + monthName + ' (' + tabName + ')');
+
+    // ── Step 2: Read DAS Report summary scorecard ─────────────────────────────
+    var dasReport = SpreadsheetApp.openById(SYNC_CONFIG.DAS_REPORT_ID);
+    var monthSheet = dasReport.getSheetByName(tabName);
+
+    if (!monthSheet) {
+      Logger.log('❌ Tab "' + tabName + '" not found in SE DAS Report. Aborting.');
+      return;
+    }
+
+    var allData = monthSheet.getDataRange().getValues();
+
+    // Extract summary rows
+    var courseData = {};  // { 'DM': { spend, result, optin, cpr }, ... }
+
+    for (var r = SUMMARY_ROW_START; r <= SUMMARY_ROW_END; r++) {
+      if (!allData[r]) continue;
+
+      var courseName = (allData[r][SUMMARY_COLS.courseName] || '').toString().trim();
+      if (!courseName) continue;
+
+      var spend  = parseFloat(allData[r][SUMMARY_COLS.monthlySpend]) || 0;
+      var result = parseFloat(allData[r][SUMMARY_COLS.totalResult])  || 0;
+      var optin  = parseFloat(allData[r][SUMMARY_COLS.totalOptin])   || 0;
+      var cpr    = result > 0 ? Math.round((spend / result) * 100) / 100 : 0;
+
+      courseData[courseName.toUpperCase()] = {
+        name:   courseName,
+        spend:  Math.round(spend  * 100) / 100,
+        result: Math.round(result),
+        optin:  Math.round(optin),
+        cpr:    cpr,
+      };
+
+      Logger.log('  Read: ' + courseName
+        + ' | Spend: ₹' + courseData[courseName.toUpperCase()].spend
+        + ' | Result: '  + courseData[courseName.toUpperCase()].result
+        + ' | Optin: '   + courseData[courseName.toUpperCase()].optin);
+    }
+
+    if (Object.keys(courseData).length === 0) {
+      Logger.log('❌ No course data found in summary scorecard. Aborting.');
+      return;
+    }
+
+    // ── Step 3: Open the AD Spent workbooks ──────────────────────────────────
+    var dmSosSS = SpreadsheetApp.openById(SYNC_CONFIG.DM_SOS_AD_SPENT_ID);
+    var aiSS    = SpreadsheetApp.openById(SYNC_CONFIG.AI_AD_SPENT_ID);
+
+    // ── Step 4: Write to each AD Spent tab ───────────────────────────────────
+    // Group courses by their tab so we only open each tab once
+    var tabWrites = {};
+    // Structure: { 'DM_SOS|DM': ['DM','DM BO PAID',...], 'DM_SOS|SOS': [...], 'AI|AI': [...] }
+
+    Object.keys(courseData).forEach(function(courseKey) {
+      var mapping = COURSE_TAB_MAP[courseKey];
+      if (!mapping) {
+        Logger.log('  ⚠️ No tab mapping for course: ' + courseKey + ' — skipping.');
+        return;
+      }
+      var tabKey = mapping.workbook + '|' + mapping.tabPrefix;
+      if (!tabWrites[tabKey]) tabWrites[tabKey] = [];
+      tabWrites[tabKey].push(courseKey);
+    });
+
+    var totalWritten = 0;
+
+    Object.keys(tabWrites).forEach(function(tabKey) {
+      var parts      = tabKey.split('|');
+      var workbook   = parts[0];  // 'DM_SOS' or 'AI'
+      var tabPrefix  = parts[1];  // 'DM', 'SOS', or 'AI'
+      var courses    = tabWrites[tabKey];
+
+      var tabName    = tabPrefix + ' - ' + monthName;  // e.g. "DM - September"
+      var ss         = workbook === 'AI' ? aiSS : dmSosSS;
+      var sheet      = ss.getSheetByName(tabName);
+
+      if (!sheet) {
+        Logger.log('  ❌ Tab "' + tabName + '" not found in '
+          + (workbook === 'AI' ? 'SEAI' : 'SE') + ' AD Spent sheet.'
+          + ' Create it manually with Course Name column and course rows.');
+        return;
+      }
+
+      Logger.log('  Writing to tab: "' + tabName + '"');
+
+      // Read the tab data to find course rows
+      var tabData = sheet.getDataRange().getValues();
+
+      // Find Course Name column (look for header "Course Name" in row 0)
+      var courseNameCol = -1;
+      var headerRow     = -1;
+
+      for (var r = 0; r < Math.min(tabData.length, 10); r++) {
+        for (var c = 0; c < tabData[r].length; c++) {
+          var cellVal = (tabData[r][c] || '').toString().trim().toLowerCase();
+          if (cellVal === 'course name') {
+            courseNameCol = c;
+            headerRow     = r;
+            break;
+          }
+        }
+        if (courseNameCol !== -1) break;
+      }
+
+      if (courseNameCol === -1) {
+        Logger.log('    ❌ "Course Name" header not found in tab "' + tabName + '". Skipping.');
+        return;
+      }
+
+      // Find Spend, Result, Optin, CPR column indices from header row
+      var headers = tabData[headerRow].map(function(h) {
+        return (h || '').toString().trim().toLowerCase();
+      });
+
+      var colSpend  = findColIndex(headers, ['monthly spend', 'spend']);
+      var colResult = findColIndex(headers, ['result']);
+      var colOptin  = findColIndex(headers, ['optin']);
+      var colCpr    = findColIndex(headers, ['cpr']);
+
+      Logger.log('    Columns → Spend:' + colSpend + ' Result:' + colResult
+               + ' Optin:' + colOptin + ' CPR:' + colCpr);
+
+      // Now scan rows for each course and write
+      for (var r = headerRow + 1; r < tabData.length; r++) {
+        var rowCourse = (tabData[r][courseNameCol] || '').toString().trim().toUpperCase();
+        if (!rowCourse) continue;
+        if (rowCourse === 'TOTAL') continue;  // skip total rows
+
+        var data = courseData[rowCourse];
+        if (!data) {
+          // Course in AD Spent sheet but not in DAS Report summary — skip silently
+          continue;
+        }
+
+        var sheetRow = r + 1;  // convert to 1-indexed
+
+        if (colSpend  !== -1) sheet.getRange(sheetRow, colSpend  + 1).setValue(data.spend);
+        if (colResult !== -1) sheet.getRange(sheetRow, colResult + 1).setValue(data.result);
+        if (colOptin  !== -1) sheet.getRange(sheetRow, colOptin  + 1).setValue(data.optin);
+        //if (colCpr    !== -1) sheet.getRange(sheetRow, colCpr    + 1).setValue(data.cpr); <------disabled cpr column
+
+        Logger.log('    ✅ ' + data.name
+          + ' [row ' + sheetRow + ']'
+          + ' Spend=₹' + data.spend
+          + ' Result=' + data.result
+          + ' Optin='  + data.optin
+          + ' CPR=₹'   + data.cpr);
+
+        totalWritten++;
+      }
+    });
+
+    Logger.log('');
+    Logger.log('✅ Sync complete. ' + totalWritten + ' course rows updated for ' + monthName + '.');
+
+  } catch (e) {
+    Logger.log('❌ syncMonthlyToAdSpent error: ' + e.toString());
+    throw e;
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRIGGER SETUP — run this ONCE to register the daily 7:05 AM trigger
+// This runs 5 minutes after morningRun() fills the DAS Report
+// ══════════════════════════════════════════════════════════════════════════════
+function setupSyncTrigger() {
+  // Remove any existing sync triggers first
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'syncMonthlyToAdSpent') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+
+  // Create new trigger at 7:05 AM
+  // Note: Apps Script doesn't support exact minutes — atHour(7) fires between 7:00-8:00 AM.
+  // Since morningRun fires at 7:00 AM and takes ~30 seconds, this is safe.
+  ScriptApp.newTrigger('syncMonthlyToAdSpent')
+    .timeBased()
+    .everyDays(1)
+    .atHour(7)
+    .create();
+
+  Logger.log('✅ Trigger set: syncMonthlyToAdSpent runs daily at 7 AM (after morningRun).');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TEST — run this manually to verify before going live
+// ══════════════════════════════════════════════════════════════════════════════
+function testSyncMonthlyToAdSpent() {
+  Logger.log('=== TEST RUN ===');
+  syncMonthlyToAdSpent();
+}
+
+
+// ── HELPER: find column index by keyword match ────────────────────────────────
+function findColIndex(headers, keywords) {
+  for (var k = 0; k < keywords.length; k++) {
+    for (var i = 0; i < headers.length; i++) {
+      if (headers[i].indexOf(keywords[k]) !== -1) return i;
+    }
+  }
+  return -1;
+}
