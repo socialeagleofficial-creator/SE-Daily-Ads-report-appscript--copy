@@ -12,8 +12,8 @@ var COURSE_GROUPS = {
   DM:  ["DM FREE CALL BOOKING", "DM FORMS", "DM WEBSITE VISIT", "DM DIRECT CALLS", "DM HW PAID",
         "DM", "DM BO PAID", "DM 2DC"],
   SOS: ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"],
-  // Standalone brands (Dharaneetharan Durairajan ad account)
-  Brands: ["RECLAIM YOUR LIFE", "AI MINDSET WEBINAR"]
+  // Events — standalone brands (Dharaneetharan Durairajan ad account)
+  Events: ["RECLAIM YOUR LIFE", "AI MINDSET WEBINAR"]
 };
 
 // Same wording as the Marketing Dashboard (dashboard.socialeagleacademy.in, CATEGORY_TAG)
@@ -115,11 +115,11 @@ function validateLogin(email, pin) {
 }
 
 function getVisibleGroups(role) {
-  if (role === "MASTER" || role === "ALL") return ["AI", "DM", "SOS", "Brands"];
+  if (role === "MASTER" || role === "ALL") return ["AI", "DM", "SOS", "Events"];
   if (role === "AI")  return ["AI"];
   if (role === "DM")  return ["DM"];
   if (role === "SOS") return ["SOS"];
-  if (role === "BRANDS") return ["Brands"];
+  if (role === "EVENTS" || role === "BRANDS") return ["Events"];
   return [];
 }
 
