@@ -1,0 +1,125 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// HwBookings.gs
+// Counts DM HW call bookings for a given day from the Housewives result sheet
+// (CONFIG.HW_SHEET_ID), by each row's "Created at date" — replaces the old
+// total-row-count snapshot diff, which counted every tab with a Meeting column
+// (Missed optin, business-owner rows, test leads) and returned 0 whenever the
+// totals didn't move.
+//
+// Counted: rows whose Unique_tag contains housewife(call booked) or
+// housewife(google call booked) — the same tags the Marketing Dashboard maps to
+// HW call bookings. Skipped: test leads, @socialeagle.in emails. The same phone
+// on the same day counts once, even across tabs.
+//
+// diagnoseHwBookings() → logs per-day counts for the last 10 days, per tab and
+// per tag, plus rows it couldn't date. Run it and check before relying on it.
+// ══════════════════════════════════════════════════════════════════════════════
+
+var HW_BOOKING_TAGS = [/housewife\s*\(\s*call booked\s*\)/i, /housewife\s*\(\s*google call booked\s*\)/i];
+
+// Returns { dateStr: { total, byTab: {tab: n}, byTag: {tag: n} } } for every date found,
+// plus an '_undated' entry for booking rows with no readable Created at date.
+var _hwBookingsCache = null;  // one read of the HW sheet per execution (re-sync calls this 7×)
+
+function hwBookingsByDate() {
+  if (_hwBookingsCache) return _hwBookingsCache;
+  var tz  = Session.getScriptTimeZone();
+  var ss  = SpreadsheetApp.openById(CONFIG.HW_SHEET_ID);
+  var out = {};
+  var seen = {};
+
+  ss.getSheets().forEach(function(sheet) {
+    var data = sheet.getDataRange().getValues();
+    var h = hwFindHeader(data);
+    if (!h) return;
+
+    for (var r = h.row + 1; r < data.length; r++) {
+      var row = data[r];
+      var tag = String(row[h.tag] || '');
+      var hit = HW_BOOKING_TAGS.filter(function(re) { return re.test(tag); })[0];
+      if (!hit) continue;
+
+      var email = String(h.email >= 0 ? row[h.email] : '').toLowerCase();
+      var rowText = row.join(' ').toLowerCase();
+      if (email.indexOf('@socialeagle.in') !== -1 || rowText.indexOf('test lead') !== -1) continue;
+
+      var dateStr = hwParseDate(row[h.created], tz) || '_undated';
+      var phone = String(h.phone >= 0 ? row[h.phone] : '').replace(/\D/g, '').slice(-10);
+      var key = dateStr + '|' + (phone || (sheet.getName() + ':' + r));
+      if (seen[key]) continue;
+      seen[key] = true;
+
+      var d = out[dateStr] || (out[dateStr] = { total: 0, byTab: {}, byTag: {} });
+      var tagName = hit.source.indexOf('google') !== -1 ? 'housewife(google call booked)' : 'housewife(call booked)';
+      d.total++;
+      d.byTab[sheet.getName()] = (d.byTab[sheet.getName()] || 0) + 1;
+      d.byTag[tagName] = (d.byTag[tagName] || 0) + 1;
+    }
+  });
+  _hwBookingsCache = out;
+  return out;
+}
+
+function countHwBookingsOn(dateStr) {
+  var d = hwBookingsByDate()[dateStr];
+  return d ? d.total : 0;
+}
+
+// AutoFill fallback when MK DB returns 0 for DM HW PAID. Never throws: if the HW sheet
+// can't be opened (e.g. not shared with the script's account) it logs, alerts and returns 0.
+function hwFallbackCount(dateStr) {
+  try {
+    var n = countHwBookingsOn(dateStr);
+    Logger.log('DM HW PAID: MK DB=0, using HW sheet bookings for ' + dateStr + ' (' + n + ')');
+    return n;
+  } catch (e) {
+    Logger.log('DM HW PAID: HW sheet not readable — result left at 0. ' + e);
+    sendAlert('HW sheet not readable', 'AutoFill could not open the HW result sheet (' + CONFIG.HW_SHEET_ID + '): ' + e);
+    return 0;
+  }
+}
+
+// Header row within the first 5 rows: needs Unique_tag, a Meeting column and Created at date
+function hwFindHeader(data) {
+  for (var r = 0; r < Math.min(5, data.length); r++) {
+    var cells = data[r].map(function(c) { return String(c || '').toLowerCase().trim(); });
+    var col = function(test) { for (var i = 0; i < cells.length; i++) if (test(cells[i])) return i; return -1; };
+    var tag     = col(function(c) { return c === 'unique_tag' || c === 'unique tag'; });
+    var meeting = col(function(c) { return c.indexOf('meeting') !== -1; });
+    var created = col(function(c) { return c === 'created at date'; });
+    if (tag >= 0 && meeting >= 0 && created >= 0) {
+      return { row: r, tag: tag, created: created,
+               email: col(function(c) { return c === 'email'; }),
+               phone: col(function(c) { return c === 'phone'; }) };
+    }
+  }
+  return null;
+}
+
+// Accepts Date objects, "2026-09-15", "22/7/2026" (day first) and "July 3, 2026"
+function hwParseDate(v, tz) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  var s = String(v || '').trim();
+  if (!s) return null;
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  var d = new Date(s);
+  return isNaN(d) ? null : Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+}
+
+function diagnoseHwBookings() {
+  var tz  = Session.getScriptTimeZone();
+  var all = hwBookingsByDate();
+  Logger.log('HW call bookings by Created at date (last 10 days):');
+  for (var i = 10; i >= 1; i--) {
+    var d = new Date(); d.setDate(d.getDate() - i);
+    var ds = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    var x = all[ds];
+    Logger.log('  ' + ds + ': ' + (x ? x.total + '  tabs=' + JSON.stringify(x.byTab) + '  tags=' + JSON.stringify(x.byTag) : 0));
+  }
+  if (all._undated) Logger.log('  Undated booking rows (no readable Created at date): ' + all._undated.total + ' ' + JSON.stringify(all._undated.byTab));
+  var dates = Object.keys(all).filter(function(k) { return k !== '_undated'; }).sort();
+  Logger.log('Latest dated booking: ' + (dates[dates.length - 1] || 'none'));
+}

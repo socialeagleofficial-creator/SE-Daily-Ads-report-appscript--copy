@@ -218,14 +218,14 @@ function morningRun() {
 
   applyDashboardRules(courseData);
 
-  // HW/BO: use sheet row-count diff if MK DB returned 0
-  ['DM HW PAID', 'DM BO PAID'].forEach(function(course) {
-    if (courseData[course].results === 0) {
-      var diff = course === 'DM HW PAID' ? hwResults : boResults;
-      courseData[course].results = diff;
-      Logger.log(course + ': MK DB=0, using sheet diff (' + diff + ')');
-    }
-  });
+  // HW: if MK DB returned 0, count that day's bookings in the HW sheet (HwBookings.gs)
+  if (courseData['DM HW PAID'].results === 0) {
+    courseData['DM HW PAID'].results = hwFallbackCount(yesterdayStr);
+  }
+  // BO (legacy): sheet row-count diff
+  if (courseData['DM BO PAID'].results === 0) {
+    courseData['DM BO PAID'].results = boResults;
+  }
 
   // ── STEP 7: Write to sheet ────────────────────────────────────────────────
   var tabName = fmtDate(yesterday, tz, 'MMMM').toUpperCase()
@@ -310,7 +310,11 @@ function backfillDate(dateStr) {
   var props   = PropertiesService.getScriptProperties();
   var nextDay = new Date(date); nextDay.setDate(nextDay.getDate() + 1);
   var nextStr = fmtDate(nextDay, tz, 'yyyy-MM-dd');
-  [['DM HW PAID', 'hw_start_'], ['DM BO PAID', 'bo_start_']].forEach(function(p) {
+  if (!courseData['DM HW PAID']) courseData['DM HW PAID'] = { spend: 0, optin: 0, results: 0 };
+  if (courseData['DM HW PAID'].results === 0) {
+    courseData['DM HW PAID'].results = hwFallbackCount(dateStr);
+  }
+  [['DM BO PAID', 'bo_start_']].forEach(function(p) {
     var c = p[0];
     if (!courseData[c]) courseData[c] = { spend: 0, optin: 0, results: 0 };
     if (courseData[c].results !== 0) return;
