@@ -42,7 +42,7 @@ function checkAndSendReport() {
                       "AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"];
   const RESULT_LABELS = {
     "AI FREE CALL BOOKING": "Call Bookings",
-    "AI WEBSITE VISIT":     "Leads",
+    "AI WEBSITE VISIT":     "Registrations",
     "AI MASTERCLASS":       "Registrations",
     "AI":          "Call Bookings",
     "AI FOR KIDS": "Call Bookings",
@@ -224,9 +224,9 @@ function checkAndSendDMReport() {
                       "DM", "DM BO PAID", "DM 2DC"];
   const RESULT_LABELS = {
     "DM FREE CALL BOOKING": "Call Bookings",
-    "DM FORMS":             "Leads",
-    "DM WEBSITE VISIT":     "Leads",
-    "DM DIRECT CALLS":      "Calls",
+    "DM FORMS":             "Registrations",
+    "DM WEBSITE VISIT":     "Registrations",
+    "DM DIRECT CALLS":      "Call Bookings",
     "DM":        "Call Bookings",
     "DM BO PAID":"Call Bookings",
     "DM HW PAID":"Call Bookings",
@@ -394,7 +394,7 @@ function checkAndSendSOSReport() {
   const data = sheet.getDataRange().getValues();
   // Current courses first, then legacy names so older tabs / summary rows still work
   const SOS_COURSES = ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"];
-  const RESULT_LABELS = { "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Leads", "SOS": "Results", "SOS MS": "Results" };
+  const RESULT_LABELS = { "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Registrations", "SOS": "Results", "SOS MS": "Results" };
 
   let monthlyCourses = [];
   for (let r = 2; r <= 12; r++) {

@@ -11,14 +11,18 @@ var COURSE_GROUPS = {
         "AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"],
   DM:  ["DM FREE CALL BOOKING", "DM FORMS", "DM WEBSITE VISIT", "DM DIRECT CALLS", "DM HW PAID",
         "DM", "DM BO PAID", "DM 2DC"],
-  SOS: ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"]
+  SOS: ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"],
+  // Standalone brands (Dharaneetharan Durairajan ad account)
+  Brands: ["RECLAIM YOUR LIFE", "AI MINDSET WEBINAR"]
 };
 
+// Same wording as the Marketing Dashboard (dashboard.socialeagleacademy.in, CATEGORY_TAG)
 var RESULT_LABELS = {
-  "AI FREE CALL BOOKING": "Call Bookings", "AI WEBSITE VISIT": "Leads", "AI MASTERCLASS": "Registrations",
-  "DM FREE CALL BOOKING": "Call Bookings", "DM FORMS": "Leads", "DM WEBSITE VISIT": "Leads",
-  "DM DIRECT CALLS": "Calls",
-  "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Leads",
+  "AI FREE CALL BOOKING": "Call Bookings", "AI WEBSITE VISIT": "Registrations", "AI MASTERCLASS": "Registrations",
+  "DM FREE CALL BOOKING": "Call Bookings", "DM FORMS": "Registrations", "DM WEBSITE VISIT": "Registrations",
+  "DM DIRECT CALLS": "Call Bookings",
+  "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Registrations",
+  "RECLAIM YOUR LIFE": "Tickets Purchased", "AI MINDSET WEBINAR": "Registrations",
   "AI": "Call Bookings", "AI FOR KIDS": "Call Bookings", "AI SEMINAR BO": "Seminar Registrations",
   "AI WORKSHOP": "Registrations", "AI FOR BO": "Registrations",
   "DM": "Call Bookings", "DM BO PAID": "Call Bookings",
@@ -111,10 +115,11 @@ function validateLogin(email, pin) {
 }
 
 function getVisibleGroups(role) {
-  if (role === "MASTER" || role === "ALL") return ["AI", "DM", "SOS"];
+  if (role === "MASTER" || role === "ALL") return ["AI", "DM", "SOS", "Brands"];
   if (role === "AI")  return ["AI"];
   if (role === "DM")  return ["DM"];
   if (role === "SOS") return ["SOS"];
+  if (role === "BRANDS") return ["Brands"];
   return [];
 }
 
@@ -516,6 +521,7 @@ function aggregateWeek(data, dateBlocks, courses, startDate, endDate) {
       for(var r=b.row;r<bEnd;r++){
         var cn=(data[r][1]||"").toString().replace(/\s+/g," ").trim().toUpperCase();
         if(totals[cn]&&Number(data[r][2])>0){
+          if(!totals[cn].seen){totals[cn].name=(data[r][1]||"").toString().replace(/\s+/g," ").trim();totals[cn].seen=true;}
           totals[cn].spend+=Number(data[r][2])||0;
           totals[cn].results+=Number(data[r][4])||0;
           totals[cn].optin+=optinCol>=0?(Number(data[r][optinCol])||0):0;
