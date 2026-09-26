@@ -93,14 +93,21 @@ var MKDB_ALIASES = {
   'AI MINDSET WEBINAR':   ['THE AI MINDSET WEBINAR'], // dashboard's category name
 };
 
-// Courses whose Result comes from Meta's own lead count (Windsor actions_lead), matching the
-// dashboard's "ads.leads" metric — MK DB's sheet-results API does not return these.
-var RESULT_FROM_META_LEADS = ['DM DIRECT CALLS'];
+// Match the Marketing Dashboard's per-course rules (src/lib/kpi/category.ts):
+//  - DM Direct Calls: Meta's own lead count (Windsor actions_lead) is shown as Opt-ins, Result "—"
+//  - Opt-in-only courses: Result "—" on the dashboard (MK DB still returns result = optins), so 0 here
+var OPTIN_FROM_META_LEADS = ['DM DIRECT CALLS'];
+var RESULTS_NOT_APPLICABLE = [
+  'DM FORMS', 'DM WEBSITE VISIT', 'AI WEBSITE VISIT', 'SOS FORMS', 'AI MINDSET WEBINAR', 'DM DIRECT CALLS',
+];
 
-function applyMetaLeadResults(courseData) {
-  RESULT_FROM_META_LEADS.forEach(function(course) {
+function applyDashboardRules(courseData) {
+  OPTIN_FROM_META_LEADS.forEach(function(course) {
     var d = courseData[course];
-    if (d && !d.results) d.results = d.metaLeads || 0;
+    if (d && !d.optin) d.optin = d.metaLeads || 0;
+  });
+  RESULTS_NOT_APPLICABLE.forEach(function(course) {
+    if (courseData[course]) courseData[course].results = 0;
   });
 }
 
@@ -209,7 +216,7 @@ function morningRun() {
     // If MK DB returned nothing for this course, result and optin stay 0
   });
 
-  applyMetaLeadResults(courseData);
+  applyDashboardRules(courseData);
 
   // HW/BO: use sheet row-count diff if MK DB returned 0
   ['DM HW PAID', 'DM BO PAID'].forEach(function(course) {
@@ -297,7 +304,7 @@ function backfillDate(dateStr) {
     }
   });
 
-  applyMetaLeadResults(courseData);
+  applyDashboardRules(courseData);
 
   // HW/BO: if MK DB returned 0, use that day's sheet row-count snapshots (kept 5 days)
   var props   = PropertiesService.getScriptProperties();
