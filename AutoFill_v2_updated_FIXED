@@ -38,25 +38,73 @@ var CONFIG = {
 };
 
 // ── CAMPAIGN → COURSE MAPPING ─────────────────────────────────────────────────
+// Order matters: first match wins, so most specific patterns go first.
+// Course keys are UPPERCASE versions of the Col B names in the monthly tab.
 var CAMPAIGN_MAP = [
-  { contains: 'AI First Masterclass',             course: 'AI WORKSHOP',  result_type: 'purchase' },
-  { contains: 'AI for Business Owners',           course: 'AI FOR BO',    result_type: 'purchase' },
-  { contains: 'AI - Seminar for Business Owners', course: 'AI SEMINAR BO',result_type: 'purchase' },
-  { contains: 'AI - Free Call Booking',           course: 'AI',           result_type: 'lead'     },
-  { contains: 'DM - 2 Day Challenge',             course: 'DM 2DC',       result_type: 'purchase' },
-  { contains: 'DM - ₹49 Call Booking - BO',      course: 'DM BO PAID',   result_type: 'sheet'    },
-  { contains: 'DM - ₹49 Call Booking - HW',      course: 'DM HW PAID',   result_type: 'sheet'    },
-  { contains: 'SOS - Paid ₹99 - Masterclass', course: 'SOS MS',           result_type: 'purchase' },
-  { contains: 'SOS - Free Call Booking',       course: 'SOS CALL BOOKING', result_type: 'lead'     },
-  { contains: 'SOS -',                         course: 'SOS FORMS',        result_type: 'lead'     },
-  { contains: 'DM -',                             course: 'DM',           result_type: 'lead'     },
+  // AI
+  { contains: 'AI First Masterclass',             course: 'AI MASTERCLASS',       result_type: 'purchase' },
+  { contains: 'AI - Website',                     course: 'AI WEBSITE VISIT',     result_type: 'lead'     },
+  { contains: 'AI - Free Call Booking',           course: 'AI FREE CALL BOOKING', result_type: 'lead'     },
+  // DM
+  { contains: 'DM - ₹49 Call Booking - HW',       course: 'DM HW PAID',           result_type: 'sheet'    },
+  { contains: 'DM - HW - ₹49 Call Booking',       course: 'DM HW PAID',           result_type: 'sheet'    },
+  { contains: 'DM - Direct Calls',                course: 'DM DIRECT CALLS',      result_type: 'lead'     }, // also "Direct Calls and Website"
+  { contains: 'DM - Website Visit',               course: 'DM WEBSITE VISIT',     result_type: 'lead'     },
+  { contains: 'DM - Form',                        course: 'DM FORMS',             result_type: 'lead'     },
+  { contains: 'DM - Free Call Booking',           course: 'DM FREE CALL BOOKING', result_type: 'lead'     },
+  // SOS
+  { contains: 'SOS - Paid ₹99 - Masterclass',     course: 'SOS MS',               result_type: 'purchase' },
+  { contains: 'SOS - Free Call Booking',          course: 'SOS CALL BOOKING',     result_type: 'lead'     },
+  // Dashboard files these under SOS Call Booking (its "sos-other" funnel), not Forms
+  { contains: 'SOS - Awareness',                  course: 'SOS CALL BOOKING',     result_type: 'lead'     },
+  { contains: 'SOS - Reach Campaign',             course: 'SOS CALL BOOKING',     result_type: 'lead'     },
+  { contains: 'SOS -',                            course: 'SOS FORMS',            result_type: 'lead'     },
+  // Legacy courses (no longer in the monthly tab) — kept so their spend
+  // is not swallowed by the 'DM -' catch-all if these campaigns run again.
+  { contains: 'AI for Business Owners',           course: 'AI FOR BO',            result_type: 'purchase' },
+  { contains: 'AI - Seminar for Business Owners', course: 'AI SEMINAR BO',        result_type: 'purchase' },
+  { contains: 'DM - 2 Day Challenge',             course: 'DM 2DC',               result_type: 'purchase' },
+  { contains: 'DM - ₹49 Call Booking - BO',       course: 'DM BO PAID',           result_type: 'sheet'    },
+  // Catch-all for any other DM campaign
+  { contains: 'DM -',                             course: 'DM FREE CALL BOOKING', result_type: 'lead'     },
 ];
 
 var COURSE_ORDER = [
-  'AI WORKSHOP', 'AI FOR BO', 'AI', 'AI SEMINAR BO',
-  'DM', 'DM BO PAID', 'DM HW PAID', 'DM 2DC',
-  'SOS CALL BOOKING', 'SOS FORMS', 'SOS MS',
+  'DM FREE CALL BOOKING', 'DM FORMS', 'DM WEBSITE VISIT', 'DM DIRECT CALLS', 'DM HW PAID',
+  'AI FREE CALL BOOKING', 'AI WEBSITE VISIT', 'AI MASTERCLASS',
+  'SOS CALL BOOKING', 'SOS FORMS',
+  // Legacy
+  'SOS MS', 'AI FOR BO', 'AI SEMINAR BO', 'DM 2DC', 'DM BO PAID',
 ];
+
+// MK DB API still returns the old course names. For each new course, list the
+// old API keys to fall back on (first one found wins).
+var MKDB_ALIASES = {
+  'DM FREE CALL BOOKING': ['DM'],
+  'AI FREE CALL BOOKING': ['AI'],
+  'AI MASTERCLASS':       ['AI WORKSHOP'],
+  'SOS CALL BOOKING':     ['SOS'],
+};
+
+// Courses whose Result comes from Meta's own lead count (Windsor actions_lead), matching the
+// dashboard's "ads.leads" metric — MK DB's sheet-results API does not return these.
+var RESULT_FROM_META_LEADS = ['DM DIRECT CALLS'];
+
+function applyMetaLeadResults(courseData) {
+  RESULT_FROM_META_LEADS.forEach(function(course) {
+    var d = courseData[course];
+    if (d && !d.results) d.results = d.metaLeads || 0;
+  });
+}
+
+function getMkDbEntry(mkDbResults, course) {
+  if (mkDbResults[course]) return mkDbResults[course];
+  var aliases = MKDB_ALIASES[course] || [];
+  for (var i = 0; i < aliases.length; i++) {
+    if (mkDbResults[aliases[i]]) return mkDbResults[aliases[i]];
+  }
+  return null;
+}
 
 // ── VALIDATION ────────────────────────────────────────────────────────────────
 function validateConfig() {
@@ -145,13 +193,15 @@ function morningRun() {
   COURSE_ORDER.forEach(function(course) {
     if (!courseData[course]) courseData[course] = { spend: 0, optin: 0, results: 0 };
     // Inject MK DB result + optin (overrides Windsor optin)
-    var mkData = mkDbResults[course];
+    var mkData = getMkDbEntry(mkDbResults, course);
     if (mkData) {
       courseData[course].results = (mkData.result !== undefined) ? mkData.result : 0;
       courseData[course].optin   = (mkData.optin  !== undefined) ? mkData.optin  : 0;
     }
     // If MK DB returned nothing for this course, result and optin stay 0
   });
+
+  applyMetaLeadResults(courseData);
 
   // HW/BO: use sheet row-count diff if MK DB returned 0
   ['DM HW PAID', 'DM BO PAID'].forEach(function(course) {
@@ -231,12 +281,14 @@ function backfillDate(dateStr) {
   // Initialise all courses to 0
   COURSE_ORDER.forEach(function(course) {
     if (!courseData[course]) courseData[course] = { spend: 0, optin: 0, results: 0 };
-    var mkData = mkDbResults[course];
+    var mkData = getMkDbEntry(mkDbResults, course);
     if (mkData) {
       courseData[course].results = (mkData.result !== undefined) ? mkData.result : 0;
       courseData[course].optin   = (mkData.optin  !== undefined) ? mkData.optin  : 0;
     }
   });
+
+  applyMetaLeadResults(courseData);
 
   ['DM HW PAID', 'DM BO PAID'].forEach(function(c) {
     if (!courseData[c]) courseData[c] = { spend: 0, optin: 0, results: 0 };
@@ -293,8 +345,9 @@ function aggregateByCourse(rows) {
     var info = getCourseInfo((row.campaign || '').toString().trim());
     if (!info) return;
     var course = info.course;
-    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0 };
-    totals[course].spend += parseFloat(row.spend) || 0;
+    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0, metaLeads: 0 };
+    totals[course].spend     += parseFloat(row.spend) || 0;
+    totals[course].metaLeads += parseFloat(row.actions_lead) || 0;
   });
   return totals;
 }
@@ -396,28 +449,17 @@ function writeToSheet(sheet, date, dispDate, courseData, tz) {
 // ── COURSE KEY MATCHER ────────────────────────────────────────────────────────
 function matchCourseKey(sheetCourseName) {
   if (!sheetCourseName) return null;
-  var name = sheetCourseName.toUpperCase().trim();
-  var MAP = {
-    'DM':            'DM',
-    'DM 2DC':        'DM 2DC',
-    'DM BO PAID':    'DM BO PAID',
-    'DM HW PAID':    'DM HW PAID',
-    'AI':            'AI',
-    'AI WORKSHOP':   'AI WORKSHOP',
-    'AI FOR BO':     'AI FOR BO',
-    'AI SEMINAR BO': 'AI SEMINAR BO',
-    'SOS CALL BOOKING': 'SOS Call Booking',
-    'SOS FORMS':        'SOS Forms',
-    'SOS':              'SOS Call Booking',
-    'SOS MS':        'SOS MS',
+  // Normalise case and wrapped/double spaces (e.g. a line break inside the cell)
+  var name = sheetCourseName.toString().toUpperCase().replace(/\s+/g, ' ').trim();
+  if (COURSE_ORDER.indexOf(name) !== -1) return name;
+  // Old row names (May–Aug tabs) → current course keys
+  var ALIASES = {
+    'DM':          'DM FREE CALL BOOKING',
+    'AI':          'AI FREE CALL BOOKING',
+    'AI WORKSHOP': 'AI MASTERCLASS',
+    'SOS':         'SOS CALL BOOKING',
   };
-  if (MAP[name] !== undefined) return MAP[name];
-  var keys = Object.keys(MAP);
-  for (var i = 0; i < keys.length; i++) {
-    if (name.indexOf(keys[i].trim()) !== -1 || keys[i].trim().indexOf(name) !== -1) {
-      return MAP[keys[i]];
-    }
-  }
+  if (ALIASES[name] !== undefined) return ALIASES[name];
   return null;
 }
 

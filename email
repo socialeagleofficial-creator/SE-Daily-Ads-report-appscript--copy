@@ -37,8 +37,13 @@ function checkAndSendReport() {
 
   const data = sheet.getDataRange().getValues();
 
-  const AI_COURSES = ["AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"];
+  // Current courses first, then legacy names so older tabs / summary rows still work
+  const AI_COURSES = ["AI FREE CALL BOOKING", "AI WEBSITE VISIT", "AI MASTERCLASS",
+                      "AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"];
   const RESULT_LABELS = {
+    "AI FREE CALL BOOKING": "Call Bookings",
+    "AI WEBSITE VISIT":     "Leads",
+    "AI MASTERCLASS":       "Registrations",
     "AI":          "Call Bookings",
     "AI FOR KIDS": "Call Bookings",
     "AI WORKSHOP": "Registrations",
@@ -49,7 +54,7 @@ function checkAndSendReport() {
   let monthlyCourses = [];
   for (let r = 2; r <= 12; r++) {
     if (!data[r]) continue;
-    const courseName = (data[r][0] || "").toString().trim();
+    const courseName = (data[r][0] || "").toString().replace(/\s+/g, " ").trim();
     if (AI_COURSES.includes(courseName.toUpperCase())) {
       const monthlySpend = Number(data[r][1]) || 0;
       const totalResult  = Number(data[r][9]) || 0;
@@ -85,7 +90,7 @@ function checkAndSendReport() {
 
   let yesterdayCourses = [];
   for (let r = startRow; r < endRow; r++) {
-    const courseName = (data[r][1] || "").toString().trim();
+    const courseName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim();
     if (!AI_COURSES.includes(courseName.toUpperCase())) continue;
     const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
     if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
@@ -112,7 +117,7 @@ function checkAndSendReport() {
       const bStart = d.row;
       const bEnd = (bIdx + 1 < dateRowIndices.length) ? dateRowIndices[bIdx + 1].row : data.length;
       for (let r = bStart; r < bEnd; r++) {
-        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        const cName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim().toUpperCase();
         if (AI_COURSES.includes(cName) && Number(data[r][2]) > 0) {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;
@@ -214,8 +219,14 @@ function checkAndSendDMReport() {
   if (!sheet) return;
 
   const data = sheet.getDataRange().getValues();
-  const DM_COURSES = ["DM", "DM BO PAID", "DM HW PAID", "DM 2DC"];
+  // Current courses first, then legacy names so older tabs / summary rows still work
+  const DM_COURSES = ["DM FREE CALL BOOKING", "DM FORMS", "DM WEBSITE VISIT", "DM DIRECT CALLS", "DM HW PAID",
+                      "DM", "DM BO PAID", "DM 2DC"];
   const RESULT_LABELS = {
+    "DM FREE CALL BOOKING": "Call Bookings",
+    "DM FORMS":             "Leads",
+    "DM WEBSITE VISIT":     "Leads",
+    "DM DIRECT CALLS":      "Calls",
     "DM":        "Call Bookings",
     "DM BO PAID":"Call Bookings",
     "DM HW PAID":"Call Bookings",
@@ -225,7 +236,7 @@ function checkAndSendDMReport() {
   let monthlyCourses = [];
   for (let r = 2; r <= 12; r++) {
     if (!data[r]) continue;
-    const courseName = (data[r][0] || "").toString().trim();
+    const courseName = (data[r][0] || "").toString().replace(/\s+/g, " ").trim();
     if (DM_COURSES.includes(courseName.toUpperCase())) {
       const monthlySpend = Number(data[r][1]) || 0;
       const totalResult  = Number(data[r][9]) || 0;
@@ -262,7 +273,7 @@ function checkAndSendDMReport() {
 
   let yesterdayCourses = [];
   for (let r = startRow; r < endRow; r++) {
-    const courseName = (data[r][1] || "").toString().trim();
+    const courseName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim();
     if (!DM_COURSES.includes(courseName.toUpperCase())) continue;
     const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
     if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
@@ -287,7 +298,7 @@ function checkAndSendDMReport() {
       const bStart = d.row;
       const bEnd = (di + 1 < dateRowIndices.length) ? dateRowIndices[di + 1].row : data.length;
       for (let r = bStart; r < bEnd; r++) {
-        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        const cName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim().toUpperCase();
         if (DM_COURSES.includes(cName) && Number(data[r][2]) > 0) {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;
@@ -381,13 +392,14 @@ function checkAndSendSOSReport() {
   if (!sheet) return;
 
   const data = sheet.getDataRange().getValues();
-  const SOS_COURSES = ["SOS", "SOS MS"];
-  const RESULT_LABELS = { "SOS": "Results", "SOS MS": "Results" };
+  // Current courses first, then legacy names so older tabs / summary rows still work
+  const SOS_COURSES = ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"];
+  const RESULT_LABELS = { "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Leads", "SOS": "Results", "SOS MS": "Results" };
 
   let monthlyCourses = [];
   for (let r = 2; r <= 12; r++) {
     if (!data[r]) continue;
-    const courseName = (data[r][0] || "").toString().trim();
+    const courseName = (data[r][0] || "").toString().replace(/\s+/g, " ").trim();
     if (SOS_COURSES.includes(courseName.toUpperCase())) {
       const monthlySpend = Number(data[r][1]) || 0;
       const totalResult  = Number(data[r][9]) || 0;
@@ -424,7 +436,7 @@ function checkAndSendSOSReport() {
 
   let yesterdayCourses = [];
   for (let r = startRow; r < endRow; r++) {
-    const courseName = (data[r][1] || "").toString().trim();
+    const courseName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim();
     if (!SOS_COURSES.includes(courseName.toUpperCase())) continue;
     const spendCell = data[r][2], resultsCell = data[r][4], optinCell = data[r][optinCol];
     if (!isFilled(spendCell) || !isFilled(resultsCell) || !isFilled(optinCell)) {
@@ -449,7 +461,7 @@ function checkAndSendSOSReport() {
       const bStart = d.row;
       const bEnd = (di + 1 < dateRowIndices.length) ? dateRowIndices[di + 1].row : data.length;
       for (let r = bStart; r < bEnd; r++) {
-        const cName = (data[r][1] || "").toString().trim().toUpperCase();
+        const cName = (data[r][1] || "").toString().replace(/\s+/g, " ").trim().toUpperCase();
         if (SOS_COURSES.includes(cName) && Number(data[r][2]) > 0) {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;

@@ -4,7 +4,7 @@
 // Runs at midnight alongside the existing Windsor Meta spend pull
 // ============================================================
 //
-// SAFE ROWS: Only touches Col C of the row where Col B = "AI"
+// SAFE ROWS: Only touches Col C of the row where Col B = "AI Free Call Booking"
 // Will NEVER touch: AI SEMINAR BO, AI WORKSHOP, or any other row
 //
 // HOW IT WORKS:
@@ -17,14 +17,15 @@
 // --- CONFIG ---
 // Campaign names that belong to the AI course
 // Add or remove campaign names here if campaigns change in future
+// Matched by substring, the same patterns the Marketing Dashboard uses
 var AI_GOOGLE_CAMPAIGNS = [
-  "YT Conv – 2025-09-22",
-  "YT Conv – 2025-09-22 #2",       // paused but included as safety net
-  "Leads Search Campaign 24/08/2026"
+  "YT Conv",
+  "Leads Search Campaign",
+  "Call Campaign"
 ];
 
 // The exact course name in Col B of your sheet for the AI row
-var AI_ROW_COURSE_NAME = "AI";
+var AI_ROW_COURSE_NAME = "AI FREE CALL BOOKING";
 
 // Windsor AI API key — store this in Script Properties
 // In Apps Script: File > Project Properties > Script Properties
@@ -137,7 +138,7 @@ function fetchGoogleAdsSpendForAI(dateStr) {
 
     // Check if this campaign belongs to the AI course
     var isAICampaign = AI_GOOGLE_CAMPAIGNS.some(function(name) {
-      return campaignName === name; // exact match — no partial matches
+      return campaignName.indexOf(name) !== -1;
     });
 
     if (isAICampaign) {
@@ -165,10 +166,10 @@ function findAIRowForDate(sheet, dateStr) {
 
     // Col A = Date (index 0), Col B = Course Name (index 1)
     var cellDate = row[0];
-    var courseName = (row[1] || "").toString().trim();
+    var courseName = (row[1] || "").toString().toUpperCase().replace(/\s+/g, " ").trim();
 
-    // Strict check: course name must be exactly "AI"
-    // This safely skips "AI SEMINAR BO", "AI WORKSHOP", etc.
+    // Strict check: course name must be exactly "AI Free Call Booking"
+    // This safely skips "AI Website Visit", "AI Masterclass", etc.
     if (courseName !== AI_ROW_COURSE_NAME) continue;
 
     // Check if the date matches

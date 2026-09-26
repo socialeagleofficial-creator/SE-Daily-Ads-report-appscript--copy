@@ -4,7 +4,7 @@
 //
 // Only does ONE thing:
 //   Fetches Google Ads spend for AI campaigns from Windsor
-//   and adds it to courseData["AI"].spend before v3 writes Col C.
+//   and adds it to courseData["AI FREE CALL BOOKING"].spend before v3 writes Col C.
 //
 // HOW TO ACTIVATE:
 //   In AutoFill v3.gs, find this line inside midnightRun():
@@ -18,16 +18,17 @@
 //   That's it. Nothing else changes.
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Google Ads campaign names that belong to the AI course
+// Google Ads campaigns that belong to AI Free Call Booking — matched by substring,
+// the same patterns the Marketing Dashboard uses (so new "YT Conv …" copies are included)
 var AI_GOOGLE_ADS_CAMPAIGNS = [
-  "YT Conv – 2025-09-22",
-  "YT Conv – 2025-09-22 #2",
-  "Leads Search Campaign 24/08/2026"
+  "YT Conv",
+  "Leads Search Campaign",
+  "Call Campaign"
 ];
 
 // ── MAIN ADD-ON FUNCTION ──────────────────────────────────────────────────────
 // Called from midnightRun() after aggregateByCourse()
-// Fetches Google Ads spend and adds it directly to courseData["AI"].spend
+// Fetches Google Ads spend and adds it directly to courseData["AI FREE CALL BOOKING"].spend
 function addGoogleAdsSpend(courseData) {
   var tz           = Session.getScriptTimeZone();
   var yesterday    = new Date(); yesterday.setDate(yesterday.getDate() - 1);
@@ -40,14 +41,15 @@ function addGoogleAdsSpend(courseData) {
     return;
   }
 
-  // Make sure AI entry exists in courseData
-  if (!courseData['AI']) courseData['AI'] = { spend: 0, optin: 0, results: 0 };
+  // Make sure the AI Free Call Booking entry exists in courseData
+  var key = 'AI FREE CALL BOOKING';
+  if (!courseData[key]) courseData[key] = { spend: 0, optin: 0, results: 0 };
 
-  var before = courseData['AI'].spend;
-  courseData['AI'].spend += googleSpend;
-  var after = courseData['AI'].spend;
+  var before = courseData[key].spend;
+  courseData[key].spend += googleSpend;
+  var after = courseData[key].spend;
 
-  Logger.log('Google Ads spend added to AI → Meta: ₹' + Math.round(before)
+  Logger.log('Google Ads spend added to AI Free Call Booking → Meta: ₹' + Math.round(before)
            + ' + Google: ₹' + Math.round(googleSpend)
            + ' = Total: ₹' + Math.round(after));
 }
@@ -74,7 +76,8 @@ function fetchGoogleAdsSpendForAI(dateStr) {
     var total = 0;
 
     rows.forEach(function(row) {
-      if (AI_GOOGLE_ADS_CAMPAIGNS.indexOf((row.campaign || '').trim()) !== -1) {
+      var name = (row.campaign || '').trim();
+      if (AI_GOOGLE_ADS_CAMPAIGNS.some(function(p) { return name.indexOf(p) !== -1; })) {
         total += parseFloat(row.spend) || 0;
       }
     });

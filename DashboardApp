@@ -5,13 +5,20 @@ var MONTHLY_DM_SOS_ID = "1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM";
 var MONTHLY_AI_ID     = "1mBYUJ2QECvYrH6ALdVel1qSM7oRyrMfPdnjeJbDWzNY";
 
 // ── COURSE GROUPS ─────────────────────────────────────────────────────────────
+// Current courses first, then legacy names so May–Aug tabs still show up
 var COURSE_GROUPS = {
-  AI:  ["AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"],
-  DM:  ["DM", "DM BO PAID", "DM HW PAID", "DM 2DC"],
-  SOS: ["SOS", "SOS MS"]
+  AI:  ["AI FREE CALL BOOKING", "AI WEBSITE VISIT", "AI MASTERCLASS",
+        "AI", "AI WORKSHOP", "AI FOR KIDS", "AI FOR BO", "AI SEMINAR BO"],
+  DM:  ["DM FREE CALL BOOKING", "DM FORMS", "DM WEBSITE VISIT", "DM DIRECT CALLS", "DM HW PAID",
+        "DM", "DM BO PAID", "DM 2DC"],
+  SOS: ["SOS CALL BOOKING", "SOS FORMS", "SOS", "SOS MS"]
 };
 
 var RESULT_LABELS = {
+  "AI FREE CALL BOOKING": "Call Bookings", "AI WEBSITE VISIT": "Leads", "AI MASTERCLASS": "Registrations",
+  "DM FREE CALL BOOKING": "Call Bookings", "DM FORMS": "Leads", "DM WEBSITE VISIT": "Leads",
+  "DM DIRECT CALLS": "Calls",
+  "SOS CALL BOOKING": "Call Bookings", "SOS FORMS": "Leads",
   "AI": "Call Bookings", "AI FOR KIDS": "Call Bookings", "AI SEMINAR BO": "Seminar Registrations",
   "AI WORKSHOP": "Registrations", "AI FOR BO": "Registrations",
   "DM": "Call Bookings", "DM BO PAID": "Call Bookings",
@@ -332,7 +339,7 @@ function parseMonthlyConv(data, courses) {
 
   var rows = [];
   for (var r = headerRow + 1; r < data.length; r++) {
-    var cName = (data[r][0] || "").toString().trim();
+    var cName = (data[r][0] || "").toString().replace(/\s+/g, " ").trim();
     if (!cName || cName.toLowerCase() === "total" || cName.toLowerCase() === "course name") continue;
     var cUp = cName.toUpperCase();
     if (!courses.some(function(c) { return c.toUpperCase() === cUp; })) continue;
@@ -431,7 +438,7 @@ function getDailyLog(data, courses, tz) {
     var endRow = idx+1 < dateBlocks.length ? dateBlocks[idx+1].row : data.length;
     var dayRows = [];
     for (var r = b.row; r < endRow; r++) {
-      var cName = (data[r][1]||'').toString().trim();
+      var cName = (data[r][1]||'').toString().replace(/\s+/g, ' ').trim();
       var cUp = cName.toUpperCase();
       if (!courses.some(function(c){return c.toUpperCase()===cUp;})) continue;
       var spend = Number(data[r][2])||0;
@@ -462,7 +469,7 @@ function getYesterday(data, dateBlocks, courses, yesterdayStr) {
 
   var rows = [];
   for (var r = block.row; r < endRow; r++) {
-    var cName = (data[r][1]||"").toString().trim();
+    var cName = (data[r][1]||"").toString().replace(/\s+/g, " ").trim();
     var cUp   = cName.toUpperCase();
     if (courses.some(function(c){return c.toUpperCase()===cUp;})) {
       var spend = Number(data[r][2])||0;
@@ -507,7 +514,7 @@ function aggregateWeek(data, dateBlocks, courses, startDate, endDate) {
     if(bd>=sd&&bd<=ed){
       var bEnd=idx+1<dateBlocks.length?dateBlocks[idx+1].row:data.length;
       for(var r=b.row;r<bEnd;r++){
-        var cn=(data[r][1]||"").toString().trim().toUpperCase();
+        var cn=(data[r][1]||"").toString().replace(/\s+/g," ").trim().toUpperCase();
         if(totals[cn]&&Number(data[r][2])>0){
           totals[cn].spend+=Number(data[r][2])||0;
           totals[cn].results+=Number(data[r][4])||0;
@@ -548,7 +555,7 @@ function getMonthSummary(data, courses) {
   var rows=[];
   for(var r=startRow;r<=startRow+15;r++){
     if(!data[r])continue;
-    var cName=(data[r][0]||"").toString().trim();
+    var cName=(data[r][0]||"").toString().replace(/\s+/g," ").trim();
     if(!cName || cName.toLowerCase()==="course name")continue;
     var cUp=cName.toUpperCase();
     if(!courses.some(function(c){return c.toUpperCase()===cUp;}))continue;

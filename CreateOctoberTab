@@ -1,0 +1,184 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// CreateOctoberTab.gs
+// Run ONCE: builds the "OCTOBER 26" tab from "SEPTEMBER 26" with the new courses.
+//
+// WHAT IT DOES:
+//   1. Copies SEPTEMBER 26 (formatting, summary formulas, conditional formats)
+//   2. Rebuilds the daily log: 31 date blocks (1–31 Oct), 10 course rows + 1 blank
+//      each, starting row 17 — using the 23-Sep block (new names) as the template
+//   3. Renames summary A3:A12 to the new courses
+//   4. Carries Sept targets over only where a course maps directly; others blank
+//   5. Moves the Milestone Tracker dates from September to October
+//   6. Logs an integrity check — read the log after running
+//
+// HOW TO USE:
+//   Extensions → Apps Script → add this file → select createOctoberTab → Run
+// ══════════════════════════════════════════════════════════════════════════════
+
+var OCT = {
+  SOURCE_TAB:     'SEPTEMBER 26',
+  NEW_TAB:        'OCTOBER 26',
+  YEAR:           2026,
+  MONTH_INDEX:    9,    // 0-based → October
+  DAYS:           31,
+  FIRST_BLOCK:    17,   // first date block row
+  BLOCK_ROWS:     11,   // 10 courses + 1 blank spacer
+  TEMPLATE_ROW:   259,  // 23-Sep block in SEPTEMBER 26 (already uses the new names)
+  LOG_COLS:       7,    // A:G — Date, Course, Ads Spent, Total Spent, Result, CPR, Optin
+  SUMMARY_FIRST:  3,
+  COURSES: [
+    'DM Free Call booking', 'DM Forms', 'DM Website Visit', 'DM Direct Calls', 'DM HW PAID',
+    'AI Free Call Booking', 'AI Website Visit', 'AI Masterclass',
+    'SOS Call Booking', 'SOS Forms',
+  ],
+  // New course → Sept summary row name whose targets carry over
+  TARGET_FROM: {
+    'DM Free Call booking': 'DM',
+    'DM HW PAID':           'DM HW PAID',
+    'AI Free Call Booking': 'AI',
+    'AI Masterclass':       'AI WORKSHOP',
+  },
+};
+
+function createOctoberTab() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var sept = ss.getSheetByName(OCT.SOURCE_TAB);
+  if (!sept) throw new Error('Tab "' + OCT.SOURCE_TAB + '" not found.');
+  if (ss.getSheetByName(OCT.NEW_TAB)) throw new Error('Tab "' + OCT.NEW_TAB + '" already exists — delete it first to rebuild.');
+
+  var nCourses = OCT.COURSES.length;
+
+  // Check the template block is what we expect before touching anything
+  var tplLabels = sept.getRange(OCT.TEMPLATE_ROW, 2, nCourses, 1).getValues().map(function(r) { return norm(r[0]); });
+  var want      = OCT.COURSES.map(norm);
+  if (tplLabels.join('|') !== want.join('|')) {
+    throw new Error('Template block at row ' + OCT.TEMPLATE_ROW + ' does not have the new course names: ' + tplLabels.join(', '));
+  }
+
+  // ── 1. Copy the Sept tab ──────────────────────────────────────────────────
+  var oct = sept.copyTo(ss).setName(OCT.NEW_TAB);
+  ss.setActiveSheet(oct);
+  ss.moveActiveSheet(sept.getIndex() + 1);
+
+  // ── 2. Stage one clean template block on a scratch tab ───────────────────
+  var stage = ss.insertSheet('_oct_stage_tmp');
+  try {
+    sept.getRange(OCT.TEMPLATE_ROW, 1, OCT.BLOCK_ROWS, OCT.LOG_COLS).copyTo(stage.getRange(1, 1));
+    [3, 5, 7].forEach(function(col) { stage.getRange(1, col, nCourses, 1).clearContent(); }); // C, E, G inputs
+    stage.getRange(1, 2, nCourses, 1).setValues(OCT.COURSES.map(function(c) { return [c]; }));
+
+    // Clear the old daily log
+    var lastNeeded = OCT.FIRST_BLOCK + OCT.DAYS * OCT.BLOCK_ROWS - 1;
+    if (oct.getMaxRows() < lastNeeded + 5) oct.insertRowsAfter(oct.getMaxRows(), lastNeeded + 5 - oct.getMaxRows());
+    var oldLog = oct.getRange(OCT.FIRST_BLOCK, 1, oct.getMaxRows() - OCT.FIRST_BLOCK + 1, OCT.LOG_COLS);
+    oldLog.breakApart();
+    oldLog.clear();
+
+    // Write 31 blocks
+    for (var d = 0; d < OCT.DAYS; d++) {
+      var start = OCT.FIRST_BLOCK + d * OCT.BLOCK_ROWS;
+      stage.getRange(1, 1, OCT.BLOCK_ROWS, OCT.LOG_COLS).copyTo(oct.getRange(start, 1));
+      oct.getRange(start, 1).setValue(new Date(OCT.YEAR, OCT.MONTH_INDEX, d + 1)).setNumberFormat('d-mmm-yyyy');
+    }
+  } finally {
+    ss.deleteSheet(stage);
+  }
+
+  // ── 3. Summary course names ───────────────────────────────────────────────
+  var septSummary = sept.getRange(OCT.SUMMARY_FIRST, 1, nCourses, 22).getValues(); // A:V
+  oct.getRange(OCT.SUMMARY_FIRST, 1, nCourses, 1).setValues(OCT.COURSES.map(function(c) { return [c]; }));
+
+  // ── 4. Targets (R:V) ──────────────────────────────────────────────────────
+  // R = U/30, T = V/30 (client convention, even in 31-day months). S, U, V typed values.
+  var targetRange = oct.getRange(OCT.SUMMARY_FIRST, 18, nCourses, 5); // R:V
+  targetRange.clearContent();
+  OCT.COURSES.forEach(function(course, i) {
+    var from = OCT.TARGET_FROM[course];
+    if (!from) return;
+    var src = null;
+    septSummary.forEach(function(row) { if (norm(row[0]) === norm(from)) src = row; });
+    if (!src) { Logger.log('⚠️ No Sept summary row for "' + from + '" — targets left blank for ' + course); return; }
+    var row = OCT.SUMMARY_FIRST + i;
+    var S = src[18], U = src[20], V = src[21];
+    if (S !== '') oct.getRange(row, 19).setValue(S);
+    if (U !== '') { oct.getRange(row, 21).setValue(U); oct.getRange(row, 18).setFormula('=U' + row + '/30'); }
+    if (V !== '') { oct.getRange(row, 22).setValue(V); oct.getRange(row, 20).setFormula('=V' + row + '/30'); }
+    Logger.log('Targets ' + course + ' ← ' + from + ': CPR=' + S + ' Spend=' + U + ' Result=' + V);
+  });
+
+  // ── 5. Milestone dates: September → October ───────────────────────────────
+  var top = oct.getRange(1, 1, OCT.FIRST_BLOCK - 1, oct.getMaxColumns());
+  var formulas = top.getFormulas();
+  var changed = 0;
+  for (var r = 0; r < formulas.length; r++) {
+    for (var c = 0; c < formulas[r].length; c++) {
+      var f = formulas[r][c];
+      if (!f) continue;
+      var nf = f.replace(/DATE\(\s*2026\s*,\s*9\s*,/g, 'DATE(2026,10,');
+      if (nf !== f) { top.getCell(r + 1, c + 1).setFormula(nf); changed++; }
+    }
+  }
+  Logger.log('Milestone formulas moved to October: ' + changed);
+
+  SpreadsheetApp.flush();
+  verifyOctoberTab();
+}
+
+// ── Integrity check — safe to re-run any time ───────────────────────────────
+function verifyOctoberTab() {
+  var oct = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(OCT.NEW_TAB);
+  if (!oct) throw new Error('Tab "' + OCT.NEW_TAB + '" not found.');
+  var n     = OCT.COURSES.length;
+  var tz    = Session.getScriptTimeZone();
+  var want  = OCT.COURSES.map(norm).join('|');
+  var issues = [];
+
+  for (var d = 0; d < OCT.DAYS; d++) {
+    var start = OCT.FIRST_BLOCK + d * OCT.BLOCK_ROWS;
+    var blk   = oct.getRange(start, 1, OCT.BLOCK_ROWS, OCT.LOG_COLS);
+    var vals  = blk.getValues();
+    var fx    = blk.getFormulas();
+    var label = 'Block ' + (d + 1) + ' (row ' + start + ')';
+
+    var date = vals[0][0];
+    var expect = Utilities.formatDate(new Date(OCT.YEAR, OCT.MONTH_INDEX, d + 1), tz, 'yyyy-MM-dd');
+    if (!(date instanceof Date) || Utilities.formatDate(date, tz, 'yyyy-MM-dd') !== expect) issues.push(label + ': date is ' + date);
+
+    var labels = vals.slice(0, n).map(function(r) { return r[1]; });
+    if (labels.map(norm).join('|') !== want) issues.push(label + ': course labels wrong');
+    labels.forEach(function(l) { if (String(l) !== String(l).trim()) issues.push(label + ': padded label "' + l + '"'); });
+
+    var sumF = fx[0][3].replace(/\s/g, '');
+    if (sumF !== '=SUM(C' + start + ':C' + (start + n - 1) + ')') issues.push(label + ': Total Spent formula is ' + fx[0][3]);
+
+    for (var i = 0; i < n; i++) {
+      if (fx[i][5].replace(/\s/g, '') !== '=IFERROR(C' + (start + i) + '/E' + (start + i) + ',0)') issues.push(label + ': CPR formula row ' + (start + i) + ' is ' + fx[i][5]);
+    }
+    if (vals[n].join('') !== '') issues.push(label + ': spacer row ' + (start + n) + ' not empty');
+  }
+
+  var extra = oct.getRange(OCT.FIRST_BLOCK + OCT.DAYS * OCT.BLOCK_ROWS, 1, 20, OCT.LOG_COLS).getValues();
+  if (extra.some(function(r) { return r.join('') !== ''; })) issues.push('Leftover data below the last block');
+
+  var summary = oct.getRange(1, 1, OCT.FIRST_BLOCK - 1, oct.getLastColumn()).getDisplayValues();
+  summary.forEach(function(row, r) {
+    row.forEach(function(v, c) {
+      if (/^#(REF|NAME|VALUE|DIV\/0|N\/A|ERROR)/.test(v)) issues.push('Error ' + v + ' at row ' + (r + 1) + ' col ' + (c + 1));
+    });
+  });
+  var sumNames = oct.getRange(OCT.SUMMARY_FIRST, 1, n, 1).getValues().map(function(r) { return norm(r[0]); }).join('|');
+  if (sumNames !== want) issues.push('Summary A' + OCT.SUMMARY_FIRST + ':A' + (OCT.SUMMARY_FIRST + n - 1) + ' names wrong');
+
+  var topF = oct.getRange(1, 1, OCT.FIRST_BLOCK - 1, oct.getLastColumn()).getFormulas();
+  topF.forEach(function(row, r) {
+    row.forEach(function(f, c) { if (/DATE\(\s*2026\s*,\s*9\s*,/.test(f)) issues.push('September date left at row ' + (r + 1) + ' col ' + (c + 1)); });
+  });
+
+  if (issues.length === 0) Logger.log('✅ OCTOBER 26 verified: 31 blocks, labels, formulas, summary — 0 issues.');
+  else { Logger.log('❌ ' + issues.length + ' issue(s):'); issues.forEach(function(s) { Logger.log('  - ' + s); }); }
+  return issues;
+}
+
+function norm(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
