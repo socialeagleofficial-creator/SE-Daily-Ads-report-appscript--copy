@@ -27,6 +27,7 @@ var CONFIG = {
     '826741773781488',
     '999937302780333',
     '2746106842449013',
+    '837392690044782',   // Dharaneetharan Durairajan — Reclaim Your Life + AI Mindset Webinar
   ],
   MKDB_BASE_URL:  'https://dashboard.socialeagleacademy.in/',
   MAIN_SS_ID:     '1s7fUe5d0pwg40D4CBzoVbXB6ZYz1Xy8hUQZ2R3Ku-w8',
@@ -41,6 +42,10 @@ var CONFIG = {
 // Order matters: first match wins, so most specific patterns go first.
 // Course keys are UPPERCASE versions of the Col B names in the monthly tab.
 var CAMPAIGN_MAP = [
+  // Standalone brands (same rules as the Marketing Dashboard)
+  { contains: 'AI Mindset Webinar',               course: 'AI MINDSET WEBINAR',   result_type: 'lead'     },
+  { contains: 'RYL -',                            course: 'RECLAIM YOUR LIFE',    result_type: 'purchase' },
+  { contains: 'Reclaim Your Life',                course: 'RECLAIM YOUR LIFE',    result_type: 'purchase' },
   // AI
   { contains: 'AI First Masterclass',             course: 'AI MASTERCLASS',       result_type: 'purchase' },
   { contains: 'AI - Website',                     course: 'AI WEBSITE VISIT',     result_type: 'lead'     },
@@ -73,6 +78,7 @@ var COURSE_ORDER = [
   'DM FREE CALL BOOKING', 'DM FORMS', 'DM WEBSITE VISIT', 'DM DIRECT CALLS', 'DM HW PAID',
   'AI FREE CALL BOOKING', 'AI WEBSITE VISIT', 'AI MASTERCLASS',
   'SOS CALL BOOKING', 'SOS FORMS',
+  'RECLAIM YOUR LIFE', 'AI MINDSET WEBINAR',
   // Legacy
   'SOS MS', 'AI FOR BO', 'AI SEMINAR BO', 'DM 2DC', 'DM BO PAID',
 ];
@@ -84,6 +90,7 @@ var MKDB_ALIASES = {
   'AI FREE CALL BOOKING': ['AI'],
   'AI MASTERCLASS':       ['AI WORKSHOP'],
   'SOS CALL BOOKING':     ['SOS'],
+  'AI MINDSET WEBINAR':   ['THE AI MINDSET WEBINAR'], // dashboard's category name
 };
 
 // Courses whose Result comes from Meta's own lead count (Windsor actions_lead), matching the

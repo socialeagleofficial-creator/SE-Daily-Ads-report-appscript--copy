@@ -1,0 +1,155 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// AddBrandRows.gs
+// Run ONCE: adds "Reclaim Your Life" and "AI Mindset Webinar" to the sheet.
+//
+// WHAT IT DOES:
+//   1. OCTOBER 26: every date block gets the 2 rows after "SOS Forms"
+//   2. SEPTEMBER 26: same, for blocks dated 25-Sep-2026 onward
+//   3. Both tabs: summary rows 13–14 get the 2 courses (formulas copied from row 12)
+//   4. Refills 25-Sep-2026 with AutoFill so the new rows get spend/result/optin
+//      (this rewrites every course row for 25 Sep with fresh Windsor + MK DB data)
+//   5. Logs an integrity check
+//
+// Safe to re-run: blocks/summary that already have the rows are skipped.
+//
+// HOW TO USE: select addBrandRows → Run, then read the log.
+// ══════════════════════════════════════════════════════════════════════════════
+
+var BR = {
+  LABELS:       ['Reclaim Your Life', 'AI Mindset Webinar'],
+  AFTER_LABEL:  'SOS Forms',
+  LOG_COLS:     7,     // A:G
+  FIRST_ROW:    16,
+  SUMMARY_ROW:  13,    // new summary rows 13–14, copied from row 12
+  TARGET_COLS:  [18, 5],  // R:V — targets left blank for the new rows
+  TABS: [
+    { name: 'SEPTEMBER 26', from: new Date(2026, 8, 25) },
+    { name: 'OCTOBER 26',   from: new Date(2026, 9, 1)  },
+  ],
+  BACKFILL:     ['2026-09-25'],
+};
+
+function addBrandRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  BR.TABS.forEach(function(t) {
+    var sheet = ss.getSheetByName(t.name);
+    if (!sheet) throw new Error('Tab "' + t.name + '" not found.');
+    var added = brAddToBlocks(sheet, t.from);
+    var summary = brAddToSummary(sheet);
+    Logger.log(t.name + ': rows added to ' + added + ' date block(s); summary ' + (summary ? 'updated' : 'already had them'));
+  });
+  SpreadsheetApp.flush();
+
+  BR.BACKFILL.forEach(function(d) {
+    Logger.log('Refilling ' + d + ' with AutoFill…');
+    backfillDate(d);
+  });
+
+  verifyBrandRows();
+}
+
+// Insert the rows into every block on/after `from`, bottom-up so row numbers stay valid
+function brAddToBlocks(sheet, from) {
+  var tz     = Session.getScriptTimeZone();
+  var blocks = brFindBlocks(sheet).filter(function(b) { return b.date >= from; }).reverse();
+  var count  = 0;
+
+  blocks.forEach(function(b) {
+    var labels = sheet.getRange(b.start, 2, b.end - b.start + 1, 1).getValues().map(function(r) { return brNorm(r[0]); });
+    if (labels.indexOf(brNorm(BR.LABELS[0])) !== -1) return; // already done
+
+    var idx = labels.indexOf(brNorm(BR.AFTER_LABEL));
+    if (idx === -1) throw new Error('No "' + BR.AFTER_LABEL + '" row in block ' + Utilities.formatDate(b.date, tz, 'd-MMM-yyyy') + ' (row ' + b.start + ')');
+    var afterRow  = b.start + idx;
+    var courseEnd = afterRow + BR.LABELS.length;   // last course row after insert
+    var n         = courseEnd - b.start + 1;
+
+    sheet.insertRowsAfter(afterRow, BR.LABELS.length);
+    var fresh = sheet.getRange(afterRow + 1, 1, BR.LABELS.length, BR.LOG_COLS);
+    sheet.getRange(afterRow, 1, 1, BR.LOG_COLS).copyTo(fresh, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    fresh.clearContent();
+
+    BR.LABELS.forEach(function(label, i) {
+      var r = afterRow + 1 + i;
+      sheet.getRange(r, 2).setValue(label);
+      sheet.getRange(r, 6).setFormula('=IFERROR(C' + r + '/E' + r + ', 0)');
+    });
+
+    // Stretch the merged Date (A) and Total Spent (D) cells over the new rows
+    var dateVal = sheet.getRange(b.start, 1).getValue();
+    var aRange  = sheet.getRange(b.start, 1, n, 1);
+    var dRange  = sheet.getRange(b.start, 4, n, 1);
+    aRange.breakApart(); dRange.breakApart();
+    aRange.merge(); dRange.merge();
+    sheet.getRange(b.start, 1).setValue(dateVal);
+    sheet.getRange(b.start, 4).setFormula('=SUM(C' + b.start + ':C' + courseEnd + ')');
+    count++;
+  });
+  return count;
+}
+
+function brAddToSummary(sheet) {
+  var r    = BR.SUMMARY_ROW;
+  var have = sheet.getRange(r, 1, BR.LABELS.length, 1).getValues().map(function(x) { return brNorm(x[0]); });
+  if (have.indexOf(brNorm(BR.LABELS[0])) !== -1) return false;
+  if (have.join('') !== '') throw new Error(sheet.getName() + ': summary rows ' + r + '–' + (r + 1) + ' are not empty: ' + have.join(', '));
+
+  var lastCol = sheet.getLastColumn();
+  var dest    = sheet.getRange(r, 1, BR.LABELS.length, lastCol);
+  sheet.getRange(r - 1, 1, 1, lastCol).copyTo(dest);   // formulas (relative to $A) + formats
+  sheet.getRange(r, 1, BR.LABELS.length, 1).setValues(BR.LABELS.map(function(l) { return [l]; }));
+  sheet.getRange(r, BR.TARGET_COLS[0], BR.LABELS.length, BR.TARGET_COLS[1]).clearContent();
+  return true;
+}
+
+// Date blocks: rows from FIRST_ROW whose col A holds a Date; each runs to the row before the next
+function brFindBlocks(sheet) {
+  var last = sheet.getLastRow();
+  var colA = sheet.getRange(BR.FIRST_ROW, 1, last - BR.FIRST_ROW + 1, 1).getValues();
+  var starts = [];
+  colA.forEach(function(r, i) { if (r[0] instanceof Date) starts.push({ start: BR.FIRST_ROW + i, date: r[0] }); });
+  return starts.map(function(b, i) {
+    return { start: b.start, date: b.date, end: (i + 1 < starts.length ? starts[i + 1].start : last + 1) - 1 };
+  });
+}
+
+function verifyBrandRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = Session.getScriptTimeZone();
+  var issues = [];
+  BR.TABS.forEach(function(t) {
+    var sheet  = ss.getSheetByName(t.name);
+    var blocks = brFindBlocks(sheet).filter(function(b) { return b.date >= t.from; });
+    blocks.forEach(function(b) {
+      var tag  = t.name + ' ' + Utilities.formatDate(b.date, tz, 'd-MMM');
+      var vals = sheet.getRange(b.start, 1, b.end - b.start + 1, BR.LOG_COLS).getValues();
+      var fx   = sheet.getRange(b.start, 1, b.end - b.start + 1, BR.LOG_COLS).getFormulas();
+      var labels = vals.map(function(r) { return brNorm(r[1]); });
+      var last = -1;
+      BR.LABELS.forEach(function(l) {
+        var i = labels.indexOf(brNorm(l));
+        if (i === -1) { issues.push(tag + ': missing ' + l); return; }
+        last = Math.max(last, i);
+        var row = b.start + i;
+        if (fx[i][5].replace(/\s/g, '') !== '=IFERROR(C' + row + '/E' + row + ',0)') issues.push(tag + ': CPR formula row ' + row);
+      });
+      var lastCourse = 0;
+      labels.forEach(function(l, i) { if (l) lastCourse = i; });
+      var want = '=SUM(C' + b.start + ':C' + (b.start + lastCourse) + ')';
+      if (fx[0][3].replace(/\s/g, '') !== want) issues.push(tag + ': Total Spent is ' + fx[0][3] + ' (want ' + want + ')');
+      if (!sheet.getRange(b.start, 1).isPartOfMerge() || sheet.getRange(b.start, 1).getMergedRanges()[0].getNumRows() !== lastCourse + 1) issues.push(tag + ': Date cell not merged over all courses');
+    });
+    var sum = sheet.getRange(BR.SUMMARY_ROW, 1, BR.LABELS.length, sheet.getLastColumn()).getDisplayValues();
+    sum.forEach(function(row, i) {
+      if (brNorm(row[0]) !== brNorm(BR.LABELS[i])) issues.push(t.name + ': summary row ' + (BR.SUMMARY_ROW + i) + ' is "' + row[0] + '"');
+      row.forEach(function(v, c) { if (/^#(REF|NAME|VALUE|DIV\/0|N\/A|ERROR)/.test(v)) issues.push(t.name + ': ' + v + ' at summary row ' + (BR.SUMMARY_ROW + i) + ' col ' + (c + 1)); });
+    });
+  });
+  if (!issues.length) Logger.log('✅ Brand rows verified — 0 issues.');
+  else { Logger.log('❌ ' + issues.length + ' issue(s):'); issues.forEach(function(s) { Logger.log('  - ' + s); }); }
+  return issues;
+}
+
+function brNorm(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
