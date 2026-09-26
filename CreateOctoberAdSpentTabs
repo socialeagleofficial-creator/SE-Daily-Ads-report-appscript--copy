@@ -1,0 +1,100 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// CreateOctoberAdSpentTabs.gs
+// Run ONCE: creates "DM - October", "SOS - October" (SE - 2026 AD Spent data) and
+// "AI - October" (SEAI - 2026 AD Spent data) for syncMonthlyToAdSpent().
+//
+// For each tab:
+//   1. Copies the September tab (header, formatting, Total row) → "<X> - October"
+//   2. Writes the new campaign names in Course Name, adding/removing rows as needed
+//   3. Clears September's figures in the campaign rows and Total row (cols B onward)
+//   4. CPR = IFERROR(Spend / Result); Total row sums Spend, Optin, Result
+// Revenue / conversion / budget columns are left blank for the team to fill as usual.
+// Skips any October tab that already exists.
+//
+// Needs edit access to both AD Spent workbooks. Select createOctoberAdSpentTabs → Run.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// IDs written out (not SYNC_CONFIG) so this file never depends on script load order
+var ADS_DM_SOS_ID = '1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM';  // SE - 2026 AD Spent data
+var ADS_AI_ID     = '1mBYUJ2QECvYrH6ALdVel1qSM7oRyrMfPdnjeJbDWzNY';  // SEAI - 2026 AD Spent data
+
+var ADS_OCT = [
+  { ss: ADS_DM_SOS_ID, from: 'DM - September',  to: 'DM - October',
+    campaigns: ['DM Free Call booking', 'DM Forms', 'DM Website Visit', 'DM Direct Calls', 'DM HW PAID'] },
+  { ss: ADS_DM_SOS_ID, from: 'SOS - September', to: 'SOS - October',
+    campaigns: ['SOS Call Booking', 'SOS Forms'] },
+  { ss: ADS_AI_ID,     from: 'AI - September',  to: 'AI - October',
+    campaigns: ['AI Free Call Booking', 'AI Website Visit', 'AI Masterclass'] },
+];
+
+function createOctoberAdSpentTabs() {
+  ADS_OCT.forEach(function(spec) {
+    var ss  = SpreadsheetApp.openById(spec.ss);
+    if (ss.getSheetByName(spec.to)) { Logger.log('⏭ "' + spec.to + '" already exists — skipped.'); return; }
+    var src = ss.getSheetByName(spec.from);
+    if (!src) { Logger.log('❌ "' + spec.from + '" not found in ' + ss.getName() + ' — skipped.'); return; }
+
+    var tab = src.copyTo(ss).setName(spec.to);
+    ss.setActiveSheet(tab);
+    ss.moveActiveSheet(src.getIndex() + 1);
+
+    var layout = adsFindLayout(tab);
+    if (!layout) { Logger.log('❌ "' + spec.to + '": no "Course Name" header / Total row found — left as a copy, fix by hand.'); return; }
+
+    // Resize the campaign block to the new number of campaigns (rows between header and Total)
+    var have = layout.totalRow - layout.headerRow - 1;
+    var want = spec.campaigns.length;
+    if (want > have) tab.insertRowsBefore(layout.totalRow, want - have);
+    if (want < have) tab.deleteRows(layout.headerRow + 1 + want, have - want);
+    var first = layout.headerRow + 1, last = layout.headerRow + want, total = last + 1;
+
+    var lastCol = tab.getLastColumn();
+    var nc = layout.nameCol;
+    // Clear September figures in the campaign rows and the Total row (everything right of Course Name)
+    tab.getRange(first, nc + 1, want + 1, lastCol - nc).clearContent();
+    if (want > have) {  // new rows inherit the Total row's look — copy a campaign row's format instead
+      tab.getRange(first, 1, 1, lastCol).copyTo(tab.getRange(first + have, 1, want - have, lastCol), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+
+    tab.getRange(first, nc, want, 1).setValues(spec.campaigns.map(function(c) { return [c]; }));
+    var L = function(col) { return adsColLetter(col); };
+    var canCpr = layout.cpr >= 0 && layout.spend >= 0 && layout.result >= 0;
+    for (var r = first; r <= last; r++) {
+      if (canCpr) tab.getRange(r, layout.cpr).setFormula('=IFERROR(' + L(layout.spend) + r + '/' + L(layout.result) + r + ',0)');
+    }
+    [layout.spend, layout.optin, layout.result].forEach(function(col) {
+      if (col >= 0) tab.getRange(total, col).setFormula('=SUM(' + L(col) + first + ':' + L(col) + last + ')');
+    });
+    if (canCpr) tab.getRange(total, layout.cpr).setFormula('=IFERROR(' + L(layout.spend) + total + '/' + L(layout.result) + total + ',0)');
+
+    Logger.log('✅ ' + ss.getName() + ' → "' + spec.to + '": ' + spec.campaigns.join(', ') + ' (rows ' + first + '–' + last + ', Total row ' + total + ')');
+  });
+}
+
+// Header row (first 10 rows) with "Course Name"; 1-based column numbers; Total row below it
+function adsFindLayout(tab) {
+  var data = tab.getDataRange().getValues();
+  for (var r = 0; r < Math.min(10, data.length); r++) {
+    var h = data[r].map(function(x) { return String(x || '').trim().toLowerCase(); });
+    var nc = h.indexOf('course name');
+    if (nc === -1) continue;
+    var find = function(words) {
+      for (var w = 0; w < words.length; w++) for (var c = 0; c < h.length; c++) if (h[c].indexOf(words[w]) === 0) return c + 1;
+      return -1;
+    };
+    for (var t = r + 1; t < data.length; t++) {
+      if (String(data[t][nc] || '').trim().toLowerCase() === 'total') {
+        return { headerRow: r + 1, totalRow: t + 1, nameCol: nc + 1,
+                 spend: find(['monthly spend', 'spend']), optin: find(['optin']), result: find(['result']), cpr: find(['cpr']) };
+      }
+    }
+    return null;
+  }
+  return null;
+}
+
+function adsColLetter(n) {
+  var s = '';
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
