@@ -331,6 +331,44 @@ function backfillDate(dateStr) {
   Logger.log('Backfill complete for ' + dispDate);
 }
 
+// ── DAILY 7-DAY RE-SYNC ───────────────────────────────────────────────────────
+// The Marketing Dashboard re-imports the last 7 days of Kylas data every morning (6 AM IST),
+// so results for recent days keep changing after morningRun has written them. This refills
+// the last 7 days from Windsor + MK DB so the sheet keeps matching the dashboard.
+// Runs at 8 AM (after morningRun, before the 9:30 emails). Overwrites manual edits in those rows.
+var RESYNC = {
+  DAYS:  7,
+  FLOOR: '2026-09-22',  // never touch days before the new course rows existed
+};
+
+function resyncLast7Days() {
+  var tz  = Session.getScriptTimeZone();
+  var ok  = [], failed = [];
+  for (var i = RESYNC.DAYS; i >= 1; i--) {
+    var d = new Date(); d.setDate(d.getDate() - i);
+    var dateStr = fmtDate(d, tz, 'yyyy-MM-dd');
+    if (dateStr < RESYNC.FLOOR) continue;
+    try {
+      Logger.log('════ Re-sync ' + dateStr + ' ════');
+      backfillDate(dateStr);
+      ok.push(dateStr);
+    } catch (e) {
+      Logger.log('Re-sync failed for ' + dateStr + ': ' + e);
+      failed.push(dateStr + ' (' + e.message + ')');
+    }
+  }
+  Logger.log('Re-sync done — refilled: ' + (ok.join(', ') || 'none') + (failed.length ? ' | FAILED: ' + failed.join('; ') : ''));
+  if (failed.length) sendAlert('Re-sync failed for ' + failed.length + ' day(s)', failed.join('; '));
+}
+
+function setupResyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'resyncLast7Days') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('resyncLast7Days').timeBased().everyDays(1).atHour(8).create();
+  Logger.log('Trigger set: resyncLast7Days daily at 8 AM.');
+}
+
 // ── WINDSOR API ───────────────────────────────────────────────────────────────
 function fetchWindsorWithRetry(dateStr, maxAttempts) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('WINDSOR_API_KEY');
@@ -535,7 +573,8 @@ function saveSnapshot(props, dateStr, hwCount, boCount) {
 }
 
 function cleanOldSnapshots(props) {
-  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 5);
+  // Kept 9 days so the 7-day re-sync can still use the HW/BO fallback for its oldest day
+  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 9);
   props.getKeys().forEach(function(key) {
     var prefix = '';
     if (key.indexOf('hw_start_') === 0) prefix = 'hw_start_';
