@@ -29,12 +29,9 @@ var AI_GOOGLE_ADS_CAMPAIGNS = [
 // ── MAIN ADD-ON FUNCTION ──────────────────────────────────────────────────────
 // Called from midnightRun() after aggregateByCourse()
 // Fetches Google Ads spend and adds it directly to courseData["AI FREE CALL BOOKING"].spend
-function addGoogleAdsSpend(courseData) {
-  var tz           = Session.getScriptTimeZone();
-  var yesterday    = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  var yesterdayStr = Utilities.formatDate(yesterday, tz, 'yyyy-MM-dd');
-
-  var googleSpend = fetchGoogleAdsSpendForAI(yesterdayStr);
+function addGoogleAdsSpend(courseData, dateStr) {
+  var yesterdayStr = dateStr;
+  var googleSpend  = fetchAiGoogleAdsSpend(yesterdayStr);
 
   if (googleSpend === 0) {
     Logger.log('Google Ads: no spend found for AI on ' + yesterdayStr + ' — skipping.');
@@ -56,7 +53,7 @@ function addGoogleAdsSpend(courseData) {
 
 
 // ── FETCH GOOGLE ADS SPEND FROM WINDSOR ──────────────────────────────────────
-function fetchGoogleAdsSpendForAI(dateStr) {
+function fetchAiGoogleAdsSpend(dateStr) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('WINDSOR_API_KEY');
 
   var url = 'https://connectors.windsor.ai/google_ads'
@@ -94,7 +91,7 @@ function fetchGoogleAdsSpendForAI(dateStr) {
 // ── TEST — run this manually to verify before midnight trigger ────────────────
 function testGoogleAdsAddon() {
   var testDate = '2026-08-26';
-  var spend = fetchGoogleAdsSpendForAI(testDate);
+  var spend = fetchAiGoogleAdsSpend(testDate);
   Logger.log('AI Google Ads spend on ' + testDate + ': ₹' + spend);
   Logger.log('Expected: ₹' + (1565.2852 + 1480.72).toFixed(2)); // YT Conv + Leads Search
 }

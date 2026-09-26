@@ -190,8 +190,9 @@ function morningRun() {
   }
   Logger.log('Windsor rows: ' + windsorRows.length);
 
-  // ── STEP 5: Aggregate spend by course ────────────────────────────────────
+  // ── STEP 5: Aggregate spend by course (Meta + Google Ads) ─────────────────
   var courseData = aggregateByCourse(windsorRows);
+  addGoogleAdsSpend(courseData, yesterdayStr);
 
   // ── STEP 6: Initialise ALL courses to 0, then inject MK DB data ──────────
   // KEY FIX: Every course gets spend/result/optin = 0 by default.
@@ -284,6 +285,7 @@ function backfillDate(dateStr) {
   if (!windsorRows) { Logger.log('Windsor failed for ' + dateStr); return; }
 
   var courseData = aggregateByCourse(windsorRows);
+  addGoogleAdsSpend(courseData, dateStr);
 
   // Initialise all courses to 0
   COURSE_ORDER.forEach(function(course) {
@@ -297,10 +299,20 @@ function backfillDate(dateStr) {
 
   applyMetaLeadResults(courseData);
 
-  ['DM HW PAID', 'DM BO PAID'].forEach(function(c) {
+  // HW/BO: if MK DB returned 0, use that day's sheet row-count snapshots (kept 5 days)
+  var props   = PropertiesService.getScriptProperties();
+  var nextDay = new Date(date); nextDay.setDate(nextDay.getDate() + 1);
+  var nextStr = fmtDate(nextDay, tz, 'yyyy-MM-dd');
+  [['DM HW PAID', 'hw_start_'], ['DM BO PAID', 'bo_start_']].forEach(function(p) {
+    var c = p[0];
     if (!courseData[c]) courseData[c] = { spend: 0, optin: 0, results: 0 };
-    if (courseData[c].results === 0) {
-      Logger.log(c + ': result is 0 — check MK DB or enter manually.');
+    if (courseData[c].results !== 0) return;
+    var start = props.getProperty(p[1] + dateStr), end = props.getProperty(p[1] + nextStr);
+    if (start !== null && end !== null) {
+      courseData[c].results = Math.max(0, parseInt(end) - parseInt(start));
+      Logger.log(c + ': MK DB=0, using sheet snapshot diff (' + courseData[c].results + ')');
+    } else {
+      Logger.log(c + ': result is 0 and no snapshots for ' + dateStr + ' — check MK DB or enter manually.');
     }
   });
 

@@ -42,6 +42,10 @@ var WINDSOR_ACCOUNT_ID = PropertiesService.getScriptProperties().getProperty("WI
 // or add it to your existing runAutoFill() function
 // ============================================================
 function fillGoogleAdsSpendForAI() {
+  // Disabled 2026-09-26: AutoFill (morningRun / backfillDate) now adds Google Ads spend to
+  // AI Free Call Booking via addGoogleAdsSpend(). Running this as well would double-count it.
+  Logger.log('fillGoogleAdsSpendForAI is disabled — AutoFill adds Google Ads spend now.');
+  return;
 
   try {
     // Step 1: Get yesterday's date (since midnight run is for previous day)

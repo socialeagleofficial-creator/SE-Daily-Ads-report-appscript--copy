@@ -153,3 +153,8 @@ function verifyBrandRows() {
 function brNorm(s) {
   return String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
 }
+
+// Re-run AutoFill for 25 Sep with Google Ads spend and the HW snapshot fallback
+function refill25Sep() {
+  backfillDate('2026-09-25');
+}
