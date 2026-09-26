@@ -41,6 +41,18 @@ var SYNC_CONFIG = {
 // Each course maps to which workbook it lives in and what the tab prefix is.
 // Tab name = prefix + " - " + monthName  e.g. "DM - September"
 var COURSE_TAB_MAP = {
+  // Current campaigns (from 22 Sep 2026)
+  'DM FREE CALL BOOKING': { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM FORMS':             { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM WEBSITE VISIT':     { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'DM DIRECT CALLS':      { workbook: 'DM_SOS', tabPrefix: 'DM'  },
+  'SOS CALL BOOKING':     { workbook: 'DM_SOS', tabPrefix: 'SOS' },
+  'SOS FORMS':            { workbook: 'DM_SOS', tabPrefix: 'SOS' },
+  'AI FREE CALL BOOKING': { workbook: 'AI',     tabPrefix: 'AI'  },
+  'AI WEBSITE VISIT':     { workbook: 'AI',     tabPrefix: 'AI'  },
+  'AI MASTERCLASS':       { workbook: 'AI',     tabPrefix: 'AI'  },
+  // Reclaim Your Life / AI Mindset Webinar have no AD Spent workbook — logged and skipped
+  // Legacy names (earlier months' summaries)
   'DM':        { workbook: 'DM_SOS', tabPrefix: 'DM'  },
   'DM BO PAID':{ workbook: 'DM_SOS', tabPrefix: 'DM'  },
   'DM HW PAID':{ workbook: 'DM_SOS', tabPrefix: 'DM'  },
@@ -63,9 +75,15 @@ var SUMMARY_COLS = {
   totalOptin:   13,  // col N
 };
 
-// Summary rows: 3–11 (0-indexed: rows 2–10)
+// Summary rows: 3–14 (0-indexed: rows 2–13) — 10 campaigns + Reclaim Your Life / AI Mindset
+// Webinar since Oct 2026. Blank rows are skipped, so older 9/10-row summaries still work.
 var SUMMARY_ROW_START = 2;  // 0-indexed (row 3 in sheet)
-var SUMMARY_ROW_END   = 10; // 0-indexed (row 11 in sheet)
+var SUMMARY_ROW_END   = 13; // 0-indexed (row 14 in sheet)
+
+// Course names are compared case-insensitively with spaces collapsed
+function syncNorm(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -109,15 +127,16 @@ function syncMonthlyToAdSpent() {
     for (var r = SUMMARY_ROW_START; r <= SUMMARY_ROW_END; r++) {
       if (!allData[r]) continue;
 
-      var courseName = (allData[r][SUMMARY_COLS.courseName] || '').toString().trim();
+      var courseName = (allData[r][SUMMARY_COLS.courseName] || '').toString().replace(/\s+/g, ' ').trim();
       if (!courseName) continue;
+      if (syncNorm(courseName) === 'DATE') break;  // reached the daily log header
 
       var spend  = parseFloat(allData[r][SUMMARY_COLS.monthlySpend]) || 0;
       var result = parseFloat(allData[r][SUMMARY_COLS.totalResult])  || 0;
       var optin  = parseFloat(allData[r][SUMMARY_COLS.totalOptin])   || 0;
       var cpr    = result > 0 ? Math.round((spend / result) * 100) / 100 : 0;
 
-      courseData[courseName.toUpperCase()] = {
+      courseData[syncNorm(courseName)] = {
         name:   courseName,
         spend:  Math.round(spend  * 100) / 100,
         result: Math.round(result),
@@ -126,9 +145,9 @@ function syncMonthlyToAdSpent() {
       };
 
       Logger.log('  Read: ' + courseName
-        + ' | Spend: ₹' + courseData[courseName.toUpperCase()].spend
-        + ' | Result: '  + courseData[courseName.toUpperCase()].result
-        + ' | Optin: '   + courseData[courseName.toUpperCase()].optin);
+        + ' | Spend: ₹' + courseData[syncNorm(courseName)].spend
+        + ' | Result: '  + courseData[syncNorm(courseName)].result
+        + ' | Optin: '   + courseData[syncNorm(courseName)].optin);
     }
 
     if (Object.keys(courseData).length === 0) {
@@ -157,6 +176,7 @@ function syncMonthlyToAdSpent() {
     });
 
     var totalWritten = 0;
+    var written = [];
 
     Object.keys(tabWrites).forEach(function(tabKey) {
       var parts      = tabKey.split('|');
@@ -216,7 +236,7 @@ function syncMonthlyToAdSpent() {
 
       // Now scan rows for each course and write
       for (var r = headerRow + 1; r < tabData.length; r++) {
-        var rowCourse = (tabData[r][courseNameCol] || '').toString().trim().toUpperCase();
+        var rowCourse = syncNorm(tabData[r][courseNameCol]);
         if (!rowCourse) continue;
         if (rowCourse === 'TOTAL') continue;  // skip total rows
 
@@ -241,10 +261,14 @@ function syncMonthlyToAdSpent() {
           + ' CPR=₹'   + data.cpr);
 
         totalWritten++;
+        written.push(rowCourse);
       }
     });
 
     Logger.log('');
+    var unwritten = Object.keys(courseData).filter(function(k) { return COURSE_TAB_MAP[k] && written.indexOf(k) === -1; });
+    if (unwritten.length) Logger.log('  ⚠️ No matching row in the AD Spent tab for: ' + unwritten.join(', ')
+      + ' — add a row with that Course Name to sync it.');
     Logger.log('✅ Sync complete. ' + totalWritten + ' course rows updated for ' + monthName + '.');
 
   } catch (e) {
