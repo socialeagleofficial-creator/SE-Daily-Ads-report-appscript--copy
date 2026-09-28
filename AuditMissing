@@ -24,12 +24,16 @@ function auditMissingValues()   { auditRange(AUDIT_FROM, auditYesterday(), 'audi
 function fillMissingValues()    { auditRange(AUDIT_FROM, auditYesterday(), 'fill');  }
 function matchDashboardValues() { auditRange(AUDIT_FROM, auditYesterday(), 'match'); }
 
+// SOS Call Booking / SOS Forms rows for 1–21 Sep 2026: the old AutoFill wrote 0 there
+// (mixed-case course key bug). Fills only 0/blank cells in those two rows.
+function fillSosSeptember() { auditRange('2026-09-01', '2026-09-21', 'fill', /^SOS (CALL BOOKING|FORMS)$/i); }
+
 function auditYesterday() {
   var d = new Date(); d.setDate(d.getDate() - 1);
   return fmtDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
-function auditRange(fromStr, toStr, mode) {
+function auditRange(fromStr, toStr, mode, onlyNames) {
   var fill = mode === 'fill' || mode === 'match';
   var tz = Session.getScriptTimeZone();
   var ss = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
@@ -48,6 +52,7 @@ function auditRange(fromStr, toStr, mode) {
 
     var lines = [];
     rows.forEach(function(r) {
+      if (onlyNames && !onlyNames.test(r.name)) return;
       var key = matchCourseKey(r.name);
       if (!key) return;
       var src = b.courseData[key] || { spend: 0, results: 0, optin: 0 };
