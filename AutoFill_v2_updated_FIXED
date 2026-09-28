@@ -280,6 +280,18 @@ function fetchMkDbResults(dateStr) {
 
 // ── BACKFILL ──────────────────────────────────────────────────────────────────
 function backfillDate(dateStr) {
+  var b = buildDayData(dateStr);
+  if (!b) return;
+  var tabName = fmtDate(b.date, b.tz, 'MMMM').toUpperCase() + ' ' + fmtDate(b.date, b.tz, 'yy');
+  var sheet = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID).getSheetByName(tabName);
+  if (!sheet) { Logger.log('Tab not found: ' + tabName); return; }
+  writeToSheet(sheet, b.date, b.dispDate, b.courseData, b.tz);
+  Logger.log('Backfill complete for ' + b.dispDate);
+}
+
+// Everything backfillDate would write for one day — shared with the missing-values audit.
+// Returns { courseData, mkDbResults, date, dispDate, tz } or null if Windsor failed.
+function buildDayData(dateStr) {
   validateConfig();
   var tz       = Session.getScriptTimeZone();
   var date     = new Date(dateStr + 'T00:00:00');
@@ -287,7 +299,7 @@ function backfillDate(dateStr) {
 
   var mkDbResults = fetchMkDbResults(dateStr) || {};
   var windsorRows = fetchWindsorWithRetry(dateStr, 3);
-  if (!windsorRows) { Logger.log('Windsor failed for ' + dateStr); return; }
+  if (!windsorRows) { Logger.log('Windsor failed for ' + dateStr); return null; }
 
   var courseData = aggregateByCourse(windsorRows);
   addGoogleAdsSpend(courseData, dateStr);
@@ -323,12 +335,7 @@ function backfillDate(dateStr) {
     }
   });
 
-  var tabName = fmtDate(date, tz, 'MMMM').toUpperCase() + ' ' + fmtDate(date, tz, 'yy');
-  var ss    = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
-  var sheet = ss.getSheetByName(tabName);
-  if (!sheet) { Logger.log('Tab not found: ' + tabName); return; }
-  writeToSheet(sheet, date, dispDate, courseData, tz);
-  Logger.log('Backfill complete for ' + dispDate);
+  return { courseData: courseData, mkDbResults: mkDbResults, date: date, dispDate: dispDate, tz: tz };
 }
 
 // ── DM HW PAID RESULT FALLBACK ────────────────────────────────────────────────
