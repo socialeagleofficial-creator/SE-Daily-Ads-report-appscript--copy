@@ -12,25 +12,31 @@
 //
 //   fillMissingValues()   — writes ONLY the MISSING cells (0/blank in the sheet, source > 0)
 //     for the same dates. Never overwrites a non-zero cell, so manual edits are kept.
+//
+//   matchDashboardValues() — MISSING cells plus Result/Optin cells that DIFFER from the
+//     dashboard (MK DB) now. Spend differences (Meta's small late revisions) are left alone,
+//     as are cells where the source has 0.
 // ══════════════════════════════════════════════════════════════════════════════
 
 var AUDIT_FROM = '2026-09-22';   // first day with the new campaign rows
 
-function auditMissingValues() { auditRange(AUDIT_FROM, auditYesterday(), false); }
-function fillMissingValues()  { auditRange(AUDIT_FROM, auditYesterday(), true);  }
+function auditMissingValues()   { auditRange(AUDIT_FROM, auditYesterday(), 'audit'); }
+function fillMissingValues()    { auditRange(AUDIT_FROM, auditYesterday(), 'fill');  }
+function matchDashboardValues() { auditRange(AUDIT_FROM, auditYesterday(), 'match'); }
 
 function auditYesterday() {
   var d = new Date(); d.setDate(d.getDate() - 1);
   return fmtDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
-function auditRange(fromStr, toStr, fill) {
+function auditRange(fromStr, toStr, mode) {
+  var fill = mode === 'fill' || mode === 'match';
   var tz = Session.getScriptTimeZone();
   var ss = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
   var FIELDS = [{ name: 'Spend', col: 3, key: 'spend' }, { name: 'Result', col: 5, key: 'results' }, { name: 'Optin', col: 7, key: 'optin' }];
   var tally = {}, counts = { MISSING: 0, DIFFERS: 0, 'NO DATA': 0, filled: 0 };
 
-  Logger.log((fill ? 'FILL' : 'AUDIT') + ' ' + fromStr + ' → ' + toStr + '   (sheet value vs source value)');
+  Logger.log(mode.toUpperCase() + ' ' + fromStr + ' → ' + toStr + '   (sheet value vs source value)');
   for (var d = new Date(fromStr + 'T00:00:00'); fmtDate(d, tz, 'yyyy-MM-dd') <= toStr; d.setDate(d.getDate() + 1)) {
     var dateStr = fmtDate(d, tz, 'yyyy-MM-dd');
     var sheet = ss.getSheetByName(fmtDate(d, tz, 'MMMM').toUpperCase() + ' ' + fmtDate(d, tz, 'yy'));
@@ -56,7 +62,8 @@ function auditRange(fromStr, toStr, fill) {
         var t = tally[r.name] || (tally[r.name] = {});
         t[f.name + ' ' + status] = (t[f.name + ' ' + status] || 0) + 1;
         var line = '  ' + status + '  ' + r.name + ' ' + f.name + ': sheet ' + (have === '' ? 'blank' : have) + ' → source ' + w;
-        if (fill && status === 'MISSING') {
+        var write = status === 'MISSING' ? fill : (mode === 'match' && f.key !== 'spend');
+        if (write) {
           sheet.getRange(r.row, f.col).setValue(w);
           counts.filled++;
           line += '  ✏️ filled';
