@@ -28,13 +28,17 @@ function matchDashboardValues() { auditRange(AUDIT_FROM, auditYesterday(), 'matc
 // (mixed-case course key bug). Fills only 0/blank cells in those two rows.
 function fillSosSeptember() { auditRange('2026-09-01', '2026-09-21', 'fill', /^SOS (CALL BOOKING|FORMS)$/i); }
 
+// 1–16 Sep 2026: the old AutoFill put all non-Masterclass SOS spend (incl. Leads Form) into the
+// SOS Call Booking row. Replaces ONLY those Spend cells with Windsor's SOS Call Booking spend.
+function fixSosCallBookingSpendSeptember() { auditRange('2026-09-01', '2026-09-16', 'matchSpend', /^SOS CALL BOOKING$/i); }
+
 function auditYesterday() {
   var d = new Date(); d.setDate(d.getDate() - 1);
   return fmtDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
 function auditRange(fromStr, toStr, mode, onlyNames) {
-  var fill = mode === 'fill' || mode === 'match';
+  var fill = mode === 'fill' || mode === 'match' || mode === 'matchSpend';
   var tz = Session.getScriptTimeZone();
   var ss = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
   var FIELDS = [{ name: 'Spend', col: 3, key: 'spend' }, { name: 'Result', col: 5, key: 'results' }, { name: 'Optin', col: 7, key: 'optin' }];
@@ -67,7 +71,8 @@ function auditRange(fromStr, toStr, mode, onlyNames) {
         var t = tally[r.name] || (tally[r.name] = {});
         t[f.name + ' ' + status] = (t[f.name + ' ' + status] || 0) + 1;
         var line = '  ' + status + '  ' + r.name + ' ' + f.name + ': sheet ' + (have === '' ? 'blank' : have) + ' → source ' + w;
-        var write = status === 'MISSING' ? fill : (mode === 'match' && f.key !== 'spend');
+        var write = status === 'MISSING' ? fill
+                  : (mode === 'match' && f.key !== 'spend') || (mode === 'matchSpend' && f.key === 'spend');
         if (write) {
           sheet.getRange(r.row, f.col).setValue(w);
           counts.filled++;
