@@ -218,10 +218,8 @@ function morningRun() {
 
   applyDashboardRules(courseData);
 
-  // HW: if MK DB returned 0, count that day's bookings in the HW sheet (HwBookings.gs)
-  if (courseData['DM HW PAID'].results === 0) {
-    courseData['DM HW PAID'].results = hwFallbackCount(yesterdayStr);
-  }
+  // HW: if MK DB returned 0, use Meta's ₹49 purchase count, then the HW sheet (HwBookings.gs)
+  courseData['DM HW PAID'].results = hwResultFallback(courseData['DM HW PAID'], yesterdayStr);
   // BO (legacy): sheet row-count diff
   if (courseData['DM BO PAID'].results === 0) {
     courseData['DM BO PAID'].results = boResults;
@@ -311,9 +309,7 @@ function backfillDate(dateStr) {
   var nextDay = new Date(date); nextDay.setDate(nextDay.getDate() + 1);
   var nextStr = fmtDate(nextDay, tz, 'yyyy-MM-dd');
   if (!courseData['DM HW PAID']) courseData['DM HW PAID'] = { spend: 0, optin: 0, results: 0 };
-  if (courseData['DM HW PAID'].results === 0) {
-    courseData['DM HW PAID'].results = hwFallbackCount(dateStr);
-  }
+  courseData['DM HW PAID'].results = hwResultFallback(courseData['DM HW PAID'], dateStr);
   [['DM BO PAID', 'bo_start_']].forEach(function(p) {
     var c = p[0];
     if (!courseData[c]) courseData[c] = { spend: 0, optin: 0, results: 0 };
@@ -333,6 +329,62 @@ function backfillDate(dateStr) {
   if (!sheet) { Logger.log('Tab not found: ' + tabName); return; }
   writeToSheet(sheet, date, dispDate, courseData, tz);
   Logger.log('Backfill complete for ' + dispDate);
+}
+
+// ── DM HW PAID RESULT FALLBACK ────────────────────────────────────────────────
+// MK DB's sheet-results has returned 0 for DM HW PAID since 22 Sep 2026, while Meta records
+// every ₹49 call booking as a purchase. Order: MK DB → Meta purchases → HW sheet count.
+function hwResultFallback(d, dateStr) {
+  if (d.results) return d.results;
+  var meta = Math.round(d.metaPurchases || 0);
+  if (meta > 0) {
+    Logger.log('DM HW PAID: MK DB=0, using Meta purchases for ' + dateStr + ' (' + meta + ')');
+    return meta;
+  }
+  return hwFallbackCount(dateStr);
+}
+
+// Fills ONLY the DM HW PAID Result cell (col E) for each date, and only where it is 0/blank —
+// every other cell is left alone (manual edits kept). Usage: fillHwResults('2026-09-22', '2026-09-27')
+function fillHwResults(fromStr, toStr) {
+  var tz = Session.getScriptTimeZone();
+  var ss = SpreadsheetApp.openById(CONFIG.MAIN_SS_ID);
+  for (var d = new Date(fromStr + 'T00:00:00'); fmtDate(d, tz, 'yyyy-MM-dd') <= toStr; d.setDate(d.getDate() + 1)) {
+    var dateStr = fmtDate(d, tz, 'yyyy-MM-dd'), disp = fmtDate(d, tz, 'd-MMM-yyyy');
+    var sheet = ss.getSheetByName(fmtDate(d, tz, 'MMMM').toUpperCase() + ' ' + fmtDate(d, tz, 'yy'));
+    if (!sheet) { Logger.log(dateStr + ': month tab not found — skipped'); continue; }
+    var rowNum = hwFindRow(sheet, disp, tz);
+    if (!rowNum) { Logger.log(dateStr + ': no DM HW PAID row — skipped'); continue; }
+    var current = sheet.getRange(rowNum, 5).getValue();
+    if (current !== '' && Number(current) !== 0) { Logger.log(dateStr + ': already has ' + current + ' — left as is'); continue; }
+
+    var rows = fetchWindsorWithRetry(dateStr, 3);
+    if (!rows) { Logger.log(dateStr + ': Windsor failed — skipped'); continue; }
+    var hw = aggregateByCourse(rows)['DM HW PAID'] || { results: 0, metaPurchases: 0 };
+    var mk = (fetchMkDbResults(dateStr) || {})['DM HW PAID'];
+    hw.results = mk && mk.result ? mk.result : 0;
+    var value = hwResultFallback(hw, dateStr);
+    sheet.getRange(rowNum, 5).setValue(value);
+    Logger.log('✅ ' + dateStr + ': DM HW PAID result → ' + value + ' [row ' + rowNum + ']');
+  }
+}
+
+function hwFindRow(sheet, dispDate, tz) {
+  var data = sheet.getDataRange().getValues(), inBlock = false;
+  for (var i = CONFIG.DATA_START_ROW - 1; i < data.length; i++) {
+    var a = data[i][0];
+    if (a instanceof Date) {
+      if (inBlock) return null;                       // next day's block — not found
+      inBlock = fmtDate(new Date(a), tz, 'd-MMM-yyyy') === dispDate;
+    }
+    if (inBlock && matchCourseKey(String(data[i][1] || '')) === 'DM HW PAID') return i + 1;
+  }
+  return null;
+}
+
+// One-off: fill DM HW PAID results for 22–27 Sep 2026
+function fillHwResults22to27Sep() {
+  fillHwResults('2026-09-22', '2026-09-27');
 }
 
 // ── DAILY 7-DAY RE-SYNC ───────────────────────────────────────────────────────
@@ -413,9 +465,10 @@ function aggregateByCourse(rows) {
     var info = getCourseInfo((row.campaign || '').toString().trim());
     if (!info) return;
     var course = info.course;
-    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0, metaLeads: 0 };
-    totals[course].spend     += parseFloat(row.spend) || 0;
-    totals[course].metaLeads += parseFloat(row.actions_lead) || 0;
+    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0, metaLeads: 0, metaPurchases: 0 };
+    totals[course].spend         += parseFloat(row.spend) || 0;
+    totals[course].metaLeads     += parseFloat(row.actions_lead) || 0;
+    totals[course].metaPurchases += parseFloat(row.actions_purchase) || 0;
   });
   return totals;
 }
