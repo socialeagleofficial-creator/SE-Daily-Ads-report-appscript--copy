@@ -271,8 +271,9 @@ function syncMonthlyToAdSpent() {
       + ' — add a row with that Course Name to sync it.');
     Logger.log('✅ Sync complete. ' + totalWritten + ' course rows updated for ' + monthName + '.');
 
-    // ── Step 5: SEAI_Master — mirror every "AI - <Month>" tab (never fails the sync) ──
-    try { syncSeaiMaster(aiSS); } catch (e) { Logger.log('⚠️ SEAI_Master update failed: ' + e); }
+    // ── Step 5: Master tabs — mirror every month tab (never fails the sync) ──
+    try { syncAdSpentMaster(aiSS,    'SEAI_Master', 'SEAI', ['AI']); }        catch (e) { Logger.log('⚠️ SEAI_Master update failed: ' + e); }
+    try { syncAdSpentMaster(dmSosSS, 'SE_Master',   'SE',   ['DM', 'SOS']); } catch (e) { Logger.log('⚠️ SE_Master update failed: ' + e); }
 
   } catch (e) {
     Logger.log('❌ syncMonthlyToAdSpent error: ' + e.toString());
@@ -326,17 +327,18 @@ function findColIndex(headers, keywords) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// SEAI_Master — one row per month × campaign, mirrored from every "AI - <Month>" tab
-// in SEAI - 2026 AD Spent data. Existing (month, campaign) rows are updated in place,
+// SEAI_Master / SE_Master — one row per month × campaign, mirrored from every
+// "<AI|DM|SOS> - <Month>" tab of that workbook. Existing (month, campaign) rows are updated in place,
 // new ones appended; then sorted by month, campaign. Same 20 columns as the old
 // consolidateSEAIMaster script. Runs at the end of syncMonthlyToAdSpent().
 // ══════════════════════════════════════════════════════════════════════════════
 var SEAI_MASTER_MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
 
-function syncSeaiMaster(aiSS) {
-  var master = aiSS.getSheetByName('SEAI_Master');
-  if (!master) { Logger.log('⚠️ SEAI_Master tab not found — skipped.'); return; }
-  var yearMatch = aiSS.getName().match(/20\d\d/);
+function syncAdSpentMaster(ss, masterName, brand, prefixes) {
+  var master = ss.getSheetByName(masterName);
+  if (!master) { Logger.log('⚠️ ' + masterName + ' tab not found — skipped.'); return; }
+  var tabRe = new RegExp('^(' + prefixes.join('|') + ')\\s*-\\s*([A-Za-z]+)$', 'i');
+  var yearMatch = ss.getName().match(/20\d\d/);
   var year = yearMatch ? Number(yearMatch[0]) : new Date().getFullYear();
 
   var mData = master.getDataRange().getValues();
@@ -348,10 +350,10 @@ function syncSeaiMaster(aiSS) {
   }
 
   var updated = 0, appended = 0, appendRows = [];
-  aiSS.getSheets().forEach(function(tab) {
-    var m = tab.getName().match(/^AI\s*-\s*([A-Za-z]+)$/);
+  ss.getSheets().forEach(function(tab) {
+    var m = tab.getName().match(tabRe);
     if (!m) return;
-    var mi = SEAI_MASTER_MONTHS.indexOf(m[1].toLowerCase());
+    var mi = SEAI_MASTER_MONTHS.indexOf(m[2].toLowerCase());
     if (mi === -1) return;
     var monthDate = new Date(year, mi, 1);
 
@@ -388,7 +390,7 @@ function syncSeaiMaster(aiSS) {
       if (course.toLowerCase() === 'total') break;
       var row = data[r];
       if (!num(row, c.spend) && !num(row, c.optin) && !num(row, c.result)) continue;  // empty campaign row
-      var out = [monthDate, 'SEAI', course,
+      var out = [monthDate, brand, course,
         c.convType >= 0 ? String(row[c.convType] || '').trim() : 'Full Course',
         num(row, c.spend), num(row, c.optin), num(row, c.result), num(row, c.cpr),
         num(row, c.conv), num(row, c.cvr), num(row, c.cac), num(row, c.vpc), num(row, c.revReg),
@@ -405,7 +407,7 @@ function syncSeaiMaster(aiSS) {
   }
   var last = master.getLastRow();
   if (last > 2) master.getRange(2, 1, last - 1, width).sort([{ column: 1, ascending: true }, { column: 3, ascending: true }]);
-  Logger.log('✅ SEAI_Master: ' + updated + ' rows updated, ' + appended + ' added.');
+  Logger.log('✅ ' + masterName + ': ' + updated + ' rows updated, ' + appended + ' added.');
 }
 
 // Month cell (Date or text like "May 2026") → "yyyy-m"
