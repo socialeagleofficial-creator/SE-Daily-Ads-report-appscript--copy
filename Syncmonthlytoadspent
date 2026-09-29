@@ -271,6 +271,9 @@ function syncMonthlyToAdSpent() {
       + ' — add a row with that Course Name to sync it.');
     Logger.log('✅ Sync complete. ' + totalWritten + ' course rows updated for ' + monthName + '.');
 
+    // ── Step 5: SEAI_Master — mirror every "AI - <Month>" tab (never fails the sync) ──
+    try { syncSeaiMaster(aiSS); } catch (e) { Logger.log('⚠️ SEAI_Master update failed: ' + e); }
+
   } catch (e) {
     Logger.log('❌ syncMonthlyToAdSpent error: ' + e.toString());
     throw e;
@@ -320,4 +323,96 @@ function findColIndex(headers, keywords) {
     }
   }
   return -1;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SEAI_Master — one row per month × campaign, mirrored from every "AI - <Month>" tab
+// in SEAI - 2026 AD Spent data. Existing (month, campaign) rows are updated in place,
+// new ones appended; then sorted by month, campaign. Same 20 columns as the old
+// consolidateSEAIMaster script. Runs at the end of syncMonthlyToAdSpent().
+// ══════════════════════════════════════════════════════════════════════════════
+var SEAI_MASTER_MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+
+function syncSeaiMaster(aiSS) {
+  var master = aiSS.getSheetByName('SEAI_Master');
+  if (!master) { Logger.log('⚠️ SEAI_Master tab not found — skipped.'); return; }
+  var yearMatch = aiSS.getName().match(/20\d\d/);
+  var year = yearMatch ? Number(yearMatch[0]) : new Date().getFullYear();
+
+  var mData = master.getDataRange().getValues();
+  var width = 20;
+  var index = {};   // "yyyy-m|COURSE" → 1-based row
+  for (var r = 1; r < mData.length; r++) {
+    var k = seaiMonthKey(mData[r][0]) + '|' + String(mData[r][2] || '').trim().toUpperCase();
+    if (k.charAt(0) !== '|') index[k] = r + 1;
+  }
+
+  var updated = 0, appended = 0, appendRows = [];
+  aiSS.getSheets().forEach(function(tab) {
+    var m = tab.getName().match(/^AI\s*-\s*([A-Za-z]+)$/);
+    if (!m) return;
+    var mi = SEAI_MASTER_MONTHS.indexOf(m[1].toLowerCase());
+    if (mi === -1) return;
+    var monthDate = new Date(year, mi, 1);
+
+    var data = tab.getDataRange().getValues();
+    var hr = -1;
+    for (var i = 0; i < Math.min(5, data.length); i++) {
+      if (String(data[i][0]).toLowerCase().indexOf('course') !== -1) { hr = i; break; }
+    }
+    if (hr === -1) return;
+    var h = data[hr].map(function(x) { return String(x).trim().toLowerCase(); });
+    var col = function(words) {
+      for (var w = 0; w < words.length; w++) { var idx = h.findIndex(function(x) { return x.indexOf(words[w]) !== -1; }); if (idx !== -1) return idx; }
+      return -1;
+    };
+    var c = {
+      convType: col(['conversion type']), spend: col(['monthly spend', 'spend']), optin: col(['optin']),
+      result: col(['result']), cpr: col(['cpr']), revReg: col(['revenue thru registration']),
+      conv: col(['conversions']), cvr: col(['conversion rate']), cac: col(['cac']),
+      vpc: col(['value per conversion']), tcv: col(['total conversion value']), trev: col(['total revenue']),
+      roas: col(['roas']), budget: col(['budget estimation']), expRes: col(['expected results']),
+      expConv: col(['expected conversions']), expRev: col(['expected revenue'])
+    };
+    var num = function(row, i) {
+      if (i < 0) return 0;
+      var v = row[i];
+      if (typeof v === 'number') return v;
+      var n = parseFloat(String(v || '').replace(/[₹,%\s]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    for (var r = hr + 1; r < data.length; r++) {
+      var course = String(data[r][0] || '').trim();
+      if (!course) continue;
+      if (course.toLowerCase() === 'total') break;
+      var row = data[r];
+      if (!num(row, c.spend) && !num(row, c.optin) && !num(row, c.result)) continue;  // empty campaign row
+      var out = [monthDate, 'SEAI', course,
+        c.convType >= 0 ? String(row[c.convType] || '').trim() : 'Full Course',
+        num(row, c.spend), num(row, c.optin), num(row, c.result), num(row, c.cpr),
+        num(row, c.conv), num(row, c.cvr), num(row, c.cac), num(row, c.vpc), num(row, c.revReg),
+        num(row, c.tcv), num(row, c.trev), num(row, c.roas), num(row, c.budget), num(row, c.expRes),
+        num(row, c.expConv), num(row, c.expRev)];
+      var key = seaiMonthKey(monthDate) + '|' + course.toUpperCase();
+      if (index[key]) { master.getRange(index[key], 1, 1, width).setValues([out]); updated++; }
+      else { appendRows.push(out); index[key] = -1; appended++; }
+    }
+  });
+
+  if (appendRows.length) {
+    master.getRange(master.getLastRow() + 1, 1, appendRows.length, width).setValues(appendRows);
+  }
+  var last = master.getLastRow();
+  if (last > 2) master.getRange(2, 1, last - 1, width).sort([{ column: 1, ascending: true }, { column: 3, ascending: true }]);
+  Logger.log('✅ SEAI_Master: ' + updated + ' rows updated, ' + appended + ' added.');
+}
+
+// Month cell (Date or text like "May 2026") → "yyyy-m"
+function seaiMonthKey(v) {
+  if (v instanceof Date && !isNaN(v)) return v.getFullYear() + '-' + (v.getMonth() + 1);
+  var m = String(v || '').match(/([A-Za-z]+)\s+(\d{4})/);
+  if (!m) return '';
+  var mi = SEAI_MASTER_MONTHS.indexOf(m[1].toLowerCase());
+  return mi === -1 ? '' : m[2] + '-' + (mi + 1);
 }
