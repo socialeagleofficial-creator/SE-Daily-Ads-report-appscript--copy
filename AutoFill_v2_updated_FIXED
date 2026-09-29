@@ -667,9 +667,12 @@ function fmtDate(date, tz, format) {
 }
 
 // ── SETUP + TEST ──────────────────────────────────────────────────────────────
+// Paste a new key below only when rotating it, run once, then put the placeholder back.
+// The key lives in Script Properties — never commit it to this file.
 function storeWindsorApiKey() {
-  PropertiesService.getScriptProperties()
-    .setProperty('WINDSOR_API_KEY', '21ea2eec4ddf36ffcaafa9fa297270a4dda5');
+  var key = 'PASTE_YOUR_KEY_HERE';
+  if (key === 'PASTE_YOUR_KEY_HERE') { Logger.log('No key pasted — existing WINDSOR_API_KEY left unchanged.'); return; }
+  PropertiesService.getScriptProperties().setProperty('WINDSOR_API_KEY', key);
   Logger.log('Windsor API key stored.');
 }
 
