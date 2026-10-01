@@ -689,6 +689,11 @@ function kpi(icon,label,val,sub,cls){
   '</div>';
 }
 
+var STAGE_LABELS=['Disq.','Ext. Positive','Reg. Fee','Partial Fee','Enrolled'];
+function hasStage(rows){return (rows||[]).some(function(r){return r&&r.stage;});}
+function sumStage(rows){return (rows||[]).reduce(function(acc,r){if(!r.stage)return acc;acc=acc||['','','','',''];return acc.map(function(a,i){return r.stage[i]===''?a:(a===''?0:a)+r.stage[i];});},null);}
+function stageThs(style){return STAGE_LABELS.map(function(l){return '<th'+(style?' style="'+style+'"':'')+'>'+l+'</th>';}).join('');}
+function stageTds(stage,style){return STAGE_LABELS.map(function(l,i){var v=stage?stage[i]:'';return '<td'+(style?' style="'+style+'"':'')+'>'+(v===''||v===null||v===undefined?'—':v)+'</td>';}).join('');}
 function mktTable(rows,title,showTotal){
   var maxS=rows.length?Math.max.apply(null,rows.map(function(r){return r.spend||0;})):1;
   var h='<div class="tcard">';
@@ -700,18 +705,19 @@ function mktTable(rows,title,showTotal){
     h+='</div></div>';
   }
   if(!rows||!rows.length)return h+'<div class="empty">No data available.</div></div>';
-  h+='<table><thead><tr><th>Campaign</th><th>Spend</th><th>Optins</th><th>Results</th><th>CPR</th></tr></thead><tbody>';
+  var showStage=hasStage(rows);
+  h+='<table><thead><tr><th>Campaign</th><th>Spend</th><th>Optins</th><th>Results</th><th>CPR</th>'+(showStage?stageThs():'')+'</tr></thead><tbody>';
   rows.forEach(function(r){
     var pct=maxS>0?Math.round(((r.spend||0)/maxS)*72):0;
     h+='<tr>';
     h+='<td><div class="cname">'+r.name+'</div><div class="clabel">'+r.label+'</div></td>';
     h+='<td class="sc"><div class="sb" style="width:'+pct+'%"></div><span class="sv">'+INR(r.spend)+'</span></td>';
     h+='<td>'+r.optin+'</td><td>'+r.results+'</td>';
-    h+='<td>'+(r.cpr?INR(r.cpr):'—')+'</td></tr>';
+    h+='<td>'+(r.cpr?INR(r.cpr):'—')+'</td>'+(showStage?stageTds(r.stage):'')+'</tr>';
   });
   if(showTotal){
     var ts=sum(rows,'spend'),tr=sum(rows,'results'),to=sum(rows,'optin'),tc=tr?ts/tr:0;
-    h+='<tr class="total-row"><td>Total</td><td>'+INR(ts)+'</td><td>'+to+'</td><td>'+tr+'</td><td>'+(tc?INR(tc):'—')+'</td></tr>';
+    h+='<tr class="total-row"><td>Total</td><td>'+INR(ts)+'</td><td>'+to+'</td><td>'+tr+'</td><td>'+(tc?INR(tc):'—')+'</td>'+(showStage?stageTds(sumStage(rows)):'')+'</tr>';
   }
   return h+'</tbody></table></div>';
 }
@@ -963,7 +969,8 @@ function buildDailyLog(days, g){
     // Course rows as a clean inline table
     h+='<table style="width:100%;border-collapse:collapse;">';
     h+='<thead><tr>';
-    ['Campaign','Spend','Optins','Results','CPR'].forEach(function(col,ci){
+    var dayStage=hasStage(day.rows);
+    ['Campaign','Spend','Optins','Results','CPR'].concat(dayStage?STAGE_LABELS:[]).forEach(function(col,ci){
       h+='<th style="padding:8px 18px;text-align:'+(ci===0?'left':'right')+';'+
          'font-size:9px;font-weight:700;color:rgba(255,255,255,0.3);'+
          'text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.06);">'+col+'</th>';
@@ -981,6 +988,7 @@ function buildDailyLog(days, g){
       h+='<td style="padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);">'+r.results+'</td>';
       h+='<td style="padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);">'+
          (r.cpr?INR(r.cpr):'—')+'</td>';
+      if(dayStage)h+=stageTds(r.stage,'padding:10px 18px;text-align:right;font-size:13px;color:rgba(255,255,255,0.85);');
       h+='</tr>';
     });
     // Day total row
@@ -996,6 +1004,7 @@ function buildDailyLog(days, g){
       h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);">'+tr+'</td>';
       h+='<td style="padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);">'+
          (tc?INR(tc):'—')+'</td>';
+      if(dayStage)h+=stageTds(sumStage(day.rows),'padding:10px 18px;text-align:right;font-size:13px;font-weight:600;color:rgba(196,181,253,0.9);');
       h+='</tr>';
     }
     h+='</tbody></table></div>';

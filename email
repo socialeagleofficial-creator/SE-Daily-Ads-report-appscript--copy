@@ -5,6 +5,60 @@
 // ============================================================
 
 
+// ── Kylas Deals stage columns (Disqualified … Enrolled) ────────────────────────
+// Read from the daily log (headers in the "Date | Course Name" row) and the summary
+// ("Total Disqualified" …). Columns only appear in an email when it has some data.
+var EMAIL_STAGE = [
+  { log: 'disqualified',       sum: 'total disqualified',       label: 'Disq.' },
+  { log: 'extremely positive', sum: 'total extremely positive', label: 'Ext. Positive' },
+  { log: 'reg. fee paid',      sum: 'total reg. fee paid',      label: 'Reg. Fee' },
+  { log: 'partial fee paid',   sum: 'total partial fee paid',   label: 'Partial Fee' },
+  { log: 'enrolled',           sum: 'total enrolled',           label: 'Enrolled' },
+];
+var EMAIL_TOTAL_TD = "padding:11px 12px;color:#7c3aed;font-weight:700;";
+
+function stageColsFromSheet(data, summary) {
+  for (var i = 0; i < Math.min(30, data.length); i++) {
+    var row = data[i].map(function(c) { return String(c || '').trim().toLowerCase(); });
+    var isHeader = summary ? (row[0] === 'course name' && row[1] === 'monthly spend')
+                           : (row[0] === 'date' && (row[1] === 'course name' || row[1] === 'course'));
+    if (!isHeader) continue;
+    var cols = EMAIL_STAGE.map(function(f) { return row.indexOf(summary ? f.sum : f.log); });
+    return cols.some(function(c) { return c >= 0; }) ? cols : null;
+  }
+  return null;
+}
+
+function readStageRow(row, cols) {
+  if (!cols) return null;
+  var vals = cols.map(function(i) { var v = i >= 0 ? row[i] : ''; return (v === '' || v === null || v === undefined) ? '' : (Number(v) || 0); });
+  return vals.some(function(v) { return v !== ''; }) ? vals : null;
+}
+
+function addStageCounts(acc, st) {
+  if (!st) return acc;
+  acc = acc || ['', '', '', '', ''];
+  return acc.map(function(a, i) { return st[i] === '' ? a : (a === '' ? 0 : a) + st[i]; });
+}
+
+function sumStageCounts(courses) {
+  return courses.reduce(function(acc, c) { return addStageCounts(acc, c.stage); }, null);
+}
+
+function emailStageThs(TH, show) {
+  if (!show) return '';
+  return EMAIL_STAGE.map(function(f) { return "<th style='" + TH + "text-align:right;'>" + f.label + "</th>"; }).join('');
+}
+
+function emailStageTds(stage, style, show) {
+  if (!show) return '';
+  return EMAIL_STAGE.map(function(f, i) {
+    var v = stage ? stage[i] : '';
+    return "<td style='" + style + "text-align:right;'>" + (v === '' ? "&mdash;" : v) + "</td>";
+  }).join('');
+}
+
+
 // ────────────────────────────────────────────────────────────
 // AI REPORT
 // ────────────────────────────────────────────────────────────
@@ -60,7 +114,7 @@ function checkAndSendReport() {
       const totalResult  = Number(data[r][9]) || 0;
       const totalOptin   = Number(data[r][13]) || 0;
       if (monthlySpend > 0) {
-        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+        monthlyCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, true)), monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
       }
     }
   }
@@ -99,7 +153,7 @@ function checkAndSendReport() {
     }
     const spend = Number(spendCell) || 0;
     if (spend <= 0) continue;
-    yesterdayCourses.push({ name: courseName, spend, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+    yesterdayCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, false)), spend, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
   }
   if (yesterdayCourses.length === 0) return;
 
@@ -109,7 +163,7 @@ function checkAndSendReport() {
   monday.setDate(yesterday.getDate() - daysFromMonday);
 
   let weeklyData = {};
-  AI_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  AI_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0, stage: null });
   for (let d of dateRowIndices) {
     const blockDate = new Date(d.dateStr);
     if (blockDate >= monday && blockDate <= yesterday) {
@@ -122,15 +176,18 @@ function checkAndSendReport() {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;
           weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+          weeklyData[cName].stage = addStageCounts(weeklyData[cName].stage, readStageRow(data[r], stageColsFromSheet(data, false)));
         }
       }
     }
   }
 
-  const weeklyCourses = AI_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyCourses = AI_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, stage: weeklyData[c].stage, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
   const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
   const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
   const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalStage = sumStageCounts(weeklyCourses);
+  const SHOW_STAGE = [].concat(yesterdayCourses, weeklyCourses, monthlyCourses).some(c => c.stage);
   const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
 
   const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -144,20 +201,20 @@ function checkAndSendReport() {
   const buildRows = (courses, labels) => courses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = labels[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
   const buildMonthlyRows = (courses, labels) => courses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = labels[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
   const weeklyTotalsRow = (spend, optin, results, cpr) =>
-    "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(spend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + optin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + results + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (cpr > 0 ? inr(cpr) : "&mdash;") + "</td></tr>";
+    "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(spend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + optin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + results + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (cpr > 0 ? inr(cpr) : "&mdash;") + "</td>" + emailStageTds(weeklyTotalStage, EMAIL_TOTAL_TD, SHOW_STAGE) + "</tr>";
 
   const buildTable = (rows) =>
-    "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+    "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th>" + emailStageThs(TH, SHOW_STAGE) + "</tr></thead><tbody>" + rows + "</tbody></table>";
 
   const buildEmail = (brand, yRows, wRows, mRows, sheetName) => {
     const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
@@ -242,7 +299,7 @@ function checkAndSendDMReport() {
       const totalResult  = Number(data[r][9]) || 0;
       const totalOptin   = Number(data[r][13]) || 0;
       if (monthlySpend > 0) {
-        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+        monthlyCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, true)), monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
       }
     }
   }
@@ -280,7 +337,7 @@ function checkAndSendDMReport() {
       Logger.log("DM not ready — " + courseName + ": spend=" + spendCell + " results=" + resultsCell + " optin=" + optinCell);
       return;
     }
-    yesterdayCourses.push({ name: courseName, spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+    yesterdayCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, false)), spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
   }
   if (yesterdayCourses.length === 0) return;
 
@@ -290,7 +347,7 @@ function checkAndSendDMReport() {
   monday.setDate(yesterday.getDate() - daysFromMonday);
 
   let weeklyData = {};
-  DM_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  DM_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0, stage: null });
   for (let di = 0; di < dateRowIndices.length; di++) {
     const d = dateRowIndices[di];
     const blockDate = new Date(d.dateStr);
@@ -303,15 +360,18 @@ function checkAndSendDMReport() {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;
           weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+          weeklyData[cName].stage = addStageCounts(weeklyData[cName].stage, readStageRow(data[r], stageColsFromSheet(data, false)));
         }
       }
     }
   }
 
-  const weeklyCourses = DM_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyCourses = DM_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, stage: weeklyData[c].stage, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
   const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
   const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
   const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalStage = sumStageCounts(weeklyCourses);
+  const SHOW_STAGE = [].concat(yesterdayCourses, weeklyCourses, monthlyCourses).some(c => c.stage);
   const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
 
   const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -325,22 +385,22 @@ function checkAndSendDMReport() {
   const yRows = yesterdayCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
   const wRows = weeklyCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
-  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
+  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td>" + emailStageTds(weeklyTotalStage, EMAIL_TOTAL_TD, SHOW_STAGE) + "</tr>";
 
   const mRows = monthlyCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
-  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th>" + emailStageThs(TH, SHOW_STAGE) + "</tr></thead><tbody>" + rows + "</tbody></table>";
   const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
 
   let html = "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:700px;margin:0 auto;background:#f5f0eb;padding:28px 20px;'>";
@@ -405,7 +465,7 @@ function checkAndSendSOSReport() {
       const totalResult  = Number(data[r][9]) || 0;
       const totalOptin   = Number(data[r][13]) || 0;
       if (monthlySpend > 0) {
-        monthlyCourses.push({ name: courseName, monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
+        monthlyCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, true)), monthlySpend, totalResult, totalOptin, monthlyCPR: totalResult > 0 ? monthlySpend / totalResult : 0 });
       }
     }
   }
@@ -443,7 +503,7 @@ function checkAndSendSOSReport() {
       Logger.log("SOS not ready — " + courseName + ": spend=" + spendCell + " results=" + resultsCell + " optin=" + optinCell);
       return;
     }
-    yesterdayCourses.push({ name: courseName, spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
+    yesterdayCourses.push({ name: courseName, stage: readStageRow(data[r], stageColsFromSheet(data, false)), spend: Number(spendCell) || 0, results: Number(resultsCell) || 0, cpr: Number(data[r][5]) || 0, optin: Number(optinCell) || 0 });
   }
   if (yesterdayCourses.length === 0) return;
 
@@ -453,7 +513,7 @@ function checkAndSendSOSReport() {
   monday.setDate(yesterday.getDate() - daysFromMonday);
 
   let weeklyData = {};
-  SOS_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0 });
+  SOS_COURSES.forEach(c => weeklyData[c] = { spend: 0, results: 0, optin: 0, stage: null });
   for (let di = 0; di < dateRowIndices.length; di++) {
     const d = dateRowIndices[di];
     const blockDate = new Date(d.dateStr);
@@ -466,15 +526,18 @@ function checkAndSendSOSReport() {
           weeklyData[cName].spend   += Number(data[r][2]) || 0;
           weeklyData[cName].results += Number(data[r][4]) || 0;
           weeklyData[cName].optin   += Number(data[r][optinCol]) || 0;
+          weeklyData[cName].stage = addStageCounts(weeklyData[cName].stage, readStageRow(data[r], stageColsFromSheet(data, false)));
         }
       }
     }
   }
 
-  const weeklyCourses = SOS_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
+  const weeklyCourses = SOS_COURSES.filter(c => weeklyData[c].spend > 0).map(c => ({ name: c, stage: weeklyData[c].stage, spend: weeklyData[c].spend, results: weeklyData[c].results, optin: weeklyData[c].optin, cpr: weeklyData[c].results > 0 ? weeklyData[c].spend / weeklyData[c].results : 0 }));
   const weeklyTotalSpend = weeklyCourses.reduce((a, c) => a + c.spend, 0);
   const weeklyTotalResults = weeklyCourses.reduce((a, c) => a + c.results, 0);
   const weeklyTotalOptin = weeklyCourses.reduce((a, c) => a + c.optin, 0);
+  const weeklyTotalStage = sumStageCounts(weeklyCourses);
+  const SHOW_STAGE = [].concat(yesterdayCourses, weeklyCourses, monthlyCourses).some(c => c.stage);
   const weeklyTotalCPR = weeklyTotalResults > 0 ? weeklyTotalSpend / weeklyTotalResults : 0;
 
   const inr = (val) => "&#8377;" + Number(val).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -488,22 +551,22 @@ function checkAndSendSOSReport() {
   const yRows = yesterdayCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
   const wRows = weeklyCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td></tr>";
-  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.spend) + "</td><td style='" + TD + "text-align:right;'>" + c.optin + "</td><td style='" + TD + "text-align:right;'>" + c.results + "</td><td style='" + TD + "text-align:right;'>" + (c.cpr > 0 ? inr(c.cpr) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
+  }).join("") + "<tr style='background:linear-gradient(135deg,#fdf4f0,#f5f0fa);border-top:2px solid #e8d5cd;'><td style='padding:11px 12px;color:#7c3aed;font-weight:700;'>Total</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + inr(weeklyTotalSpend) + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalOptin + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + weeklyTotalResults + "</td><td style='padding:11px 12px;text-align:right;color:#7c3aed;font-weight:700;'>" + (weeklyTotalCPR > 0 ? inr(weeklyTotalCPR) : "&mdash;") + "</td>" + emailStageTds(weeklyTotalStage, EMAIL_TOTAL_TD, SHOW_STAGE) + "</tr>";
 
   const mRows = monthlyCourses.map((c, i) => {
     const bg = i % 2 === 0 ? "#ffffff" : "#fdf9f7";
     const label = RESULT_LABELS[c.name.toUpperCase()] || "Results";
-    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td></tr>";
+    return "<tr style='background:" + bg + ";'><td style='" + TD + "'><div style='font-weight:700;'>" + c.name + "</div><div style='font-size:11px;color:#c96442;font-weight:500;margin-top:2px;'>" + label + "</div></td><td style='" + TD + "text-align:right;font-weight:700;'>" + inr(c.monthlySpend) + "</td><td style='" + TD + "text-align:right;'>" + c.totalOptin + "</td><td style='" + TD + "text-align:right;'>" + c.totalResult + "</td><td style='" + TD + "text-align:right;'>" + (c.monthlyCPR > 0 ? inr(c.monthlyCPR) : "&mdash;") + "</td>" + emailStageTds(c.stage, TD, SHOW_STAGE) + "</tr>";
   }).join("");
 
-  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  const buildTable = (rows) => "<table style='width:100%;border-collapse:collapse;font-size:13px;'><thead><tr><th style='" + TH + "text-align:left;'>Campaign</th><th style='" + TH + "text-align:right;'>Spend</th><th style='" + TH + "text-align:right;'>Optins</th><th style='" + TH + "text-align:right;'>Results</th><th style='" + TH + "text-align:right;'>CPR</th>" + emailStageThs(TH, SHOW_STAGE) + "</tr></thead><tbody>" + rows + "</tbody></table>";
   const monthLabel = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), "MMMM").toUpperCase();
 
   let html = "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:700px;margin:0 auto;background:#f5f0eb;padding:28px 20px;'>";

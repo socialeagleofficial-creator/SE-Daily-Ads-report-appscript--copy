@@ -428,6 +428,7 @@ function getAvailableMonths() {
 // ── DAILY LOG ─────────────────────────────────────────────────────────────────
 function getDailyLog(data, courses, tz) {
   var optinCol = detectOptinCol(data);
+  var stageCols = stageColsFromSheet(data, false);   // helpers live in email.gs
   var dateBlocks = [];
   for (var i = 15; i < data.length; i++) {
     if (data[i][0] instanceof Date) {
@@ -454,7 +455,8 @@ function getDailyLog(data, courses, tz) {
         spend:   spend,
         results: Number(data[r][4])||0,
         cpr:     Number(data[r][5])||0,
-        optin:   optinCol>=0 ? (Number(data[r][optinCol])||0) : 0
+        optin:   optinCol>=0 ? (Number(data[r][optinCol])||0) : 0,
+        stage:   readStageRow(data[r], stageCols)
       });
     }
     if (dayRows.length) days.push({ date: b.dateStr, time: b.time, rows: dayRows });
@@ -471,6 +473,7 @@ function getYesterday(data, dateBlocks, courses, yesterdayStr) {
 
   // Detect optin column by reading the daily log header row
   var optinCol = detectOptinCol(data);
+  var stageCols = stageColsFromSheet(data, false);   // helpers live in email.gs
 
   var rows = [];
   for (var r = block.row; r < endRow; r++) {
@@ -481,6 +484,7 @@ function getYesterday(data, dateBlocks, courses, yesterdayStr) {
       if (spend > 0) rows.push({ name:cName, spend:spend,
         results:Number(data[r][4])||0, cpr:Number(data[r][5])||0,
         optin: optinCol >= 0 ? (Number(data[r][optinCol])||0) : 0,
+        stage: readStageRow(data[r], stageCols),
         label:RESULT_LABELS[cUp]||"Results"});
     }
   }
@@ -509,11 +513,12 @@ function detectOptinCol(data) {
 function aggregateWeek(data, dateBlocks, courses, startDate, endDate) {
   var totals = {};
   courses.forEach(function(c) {
-    totals[c.toUpperCase()]={name:c,spend:0,results:0,optin:0,label:RESULT_LABELS[c.toUpperCase()]||"Results"};
+    totals[c.toUpperCase()]={name:c,spend:0,results:0,optin:0,stage:null,label:RESULT_LABELS[c.toUpperCase()]||"Results"};
   });
   var sd=new Date(startDate);sd.setHours(0,0,0,0);
   var ed=new Date(endDate);ed.setHours(23,59,59,999);
   var optinCol = detectOptinCol(data);
+  var stageCols = stageColsFromSheet(data, false);   // helpers live in email.gs
   dateBlocks.forEach(function(b,idx) {
     var bd=new Date(b.time);
     if(bd>=sd&&bd<=ed){
@@ -525,13 +530,14 @@ function aggregateWeek(data, dateBlocks, courses, startDate, endDate) {
           totals[cn].spend+=Number(data[r][2])||0;
           totals[cn].results+=Number(data[r][4])||0;
           totals[cn].optin+=optinCol>=0?(Number(data[r][optinCol])||0):0;
+          totals[cn].stage=addStageCounts(totals[cn].stage, readStageRow(data[r], stageCols));
         }
       }
     }
   });
   return Object.keys(totals).map(function(k){return totals[k];})
     .filter(function(c){return c.spend>0;})
-    .map(function(c){return{name:c.name,spend:c.spend,results:c.results,optin:c.optin,
+    .map(function(c){return{name:c.name,spend:c.spend,results:c.results,optin:c.optin,stage:c.stage,
       cpr:c.results>0?c.spend/c.results:0,label:c.label};});
 }
 
@@ -568,7 +574,7 @@ function getMonthSummary(data, courses) {
     var spend=Number(data[r][1])||0;
     if(spend>0){
       var res=Number(data[r][9])||0;
-      rows.push({name:cName,spend:spend,results:res,
+      rows.push({name:cName,spend:spend,results:res,stage:readStageRow(data[r], stageColsFromSheet(data, true)),
         optin: optinSummaryCol>=0 ? (Number(data[r][optinSummaryCol])||0) : 0,
         cpr:res>0?spend/res:0,label:RESULT_LABELS[cUp]||"Results"});
     }

@@ -21,7 +21,7 @@
 var MS = {
   REPORT_ID:  '1s7fUe5d0pwg40D4CBzoVbXB6ZYz1Xy8hUQZ2R3Ku-w8',
   FIRST_ROW:  16,   // date blocks start at or after this row
-  LOG_COLS:   7,    // A:G — Date, Campaign, Ads Spent, Total Spent, Result, CPR, Optin
+  LOG_COLS:   12,   // A:L — Date, Campaign, Ads Spent, Total Spent, Result, CPR, Optin, + 5 stage counts
   AD_SPENT: [
     { id: '1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM', prefix: 'DM'  },  // SE - 2026 AD Spent data
     { id: '1jCJnYqbHM4Ymrk8-Sp4AwK-XOhRmNroIoFd1GbJmQoM', prefix: 'SOS' },
@@ -85,7 +85,7 @@ function msCreateReportTab(year, month, prev) {
   try {
     // One clean block from the source month's first day: keep labels + formulas, drop figures
     src.getRange(first, 1, period, MS.LOG_COLS).copyTo(stage.getRange(1, 1));
-    [3, 5, 7].forEach(function(col) { stage.getRange(1, col, period, 1).clearContent(); });
+    [3, 5, 7, 8, 9, 10, 11, 12].forEach(function(col) { stage.getRange(1, col, period, 1).clearContent(); });
 
     var lastNeeded = first + days * period - 1;
     if (tab.getMaxRows() < lastNeeded + 5) tab.insertRowsAfter(tab.getMaxRows(), lastNeeded + 5 - tab.getMaxRows());
