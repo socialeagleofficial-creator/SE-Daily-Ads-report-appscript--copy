@@ -5,12 +5,10 @@
 // ============================================================
 
 
-// ── Kylas Deals stage columns (Disqualified … Enrolled) ────────────────────────
+// ── Kylas Deals stage columns (Reg. Fee Paid, Partial Fee Paid, Enrolled) ──────
 // Read from the daily log (headers in the "Date | Course Name" row) and the summary
-// ("Total Disqualified" …). Columns only appear in an email when it has some data.
+// ("Total Reg. Fee Paid" …). Columns only appear in an email when it has some data.
 var EMAIL_STAGE = [
-  { log: 'disqualified',       sum: 'total disqualified',       label: 'Disq.' },
-  { log: 'extremely positive', sum: 'total extremely positive', label: 'Ext. Positive' },
   { log: 'reg. fee paid',      sum: 'total reg. fee paid',      label: 'Reg. Fee' },
   { log: 'partial fee paid',   sum: 'total partial fee paid',   label: 'Partial Fee' },
   { log: 'enrolled',           sum: 'total enrolled',           label: 'Enrolled' },
@@ -37,7 +35,7 @@ function readStageRow(row, cols) {
 
 function addStageCounts(acc, st) {
   if (!st) return acc;
-  acc = acc || ['', '', '', '', ''];
+  acc = acc || EMAIL_STAGE.map(function() { return ''; });
   return acc.map(function(a, i) { return st[i] === '' ? a : (a === '' ? 0 : a) + st[i]; });
 }
 

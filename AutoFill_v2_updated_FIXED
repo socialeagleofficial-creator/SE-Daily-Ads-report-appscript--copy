@@ -115,8 +115,6 @@ function applyDashboardRules(courseData) {
 // Kylas Deals stage counts from MK DB (sheet-results) → daily-log columns, matched by header.
 // Only written when the API sends them; null (dashboard shows "—") is written as blank.
 var STAGE_FIELDS = [
-  { key: 'disqualified',      header: 'disqualified' },
-  { key: 'extremelyPositive', header: 'extremely positive' },
   { key: 'regFeePaid',        header: 'reg. fee paid' },
   { key: 'partialFeePaid',    header: 'partial fee paid' },
   { key: 'enrolled',          header: 'enrolled' },
@@ -595,7 +593,7 @@ function writeToSheet(sheet, date, dispDate, courseData, tz) {
     sheet.getRange(sheetRow, 5).setValue(result);  // Col E — Result
     sheet.getRange(sheetRow, 7).setValue(optin);   // Col G — Optin
 
-    // Cols H–L — Kylas Deals stage counts, when the tab has them and MK DB sent them
+    // Cols H–J — Kylas Deals stage counts, when the tab has them and MK DB sent them
     if (d.stage) {
       STAGE_FIELDS.forEach(function(f) {
         if (stageCols[f.key] && d.stage.hasOwnProperty(f.key)) {

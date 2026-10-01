@@ -689,9 +689,9 @@ function kpi(icon,label,val,sub,cls){
   '</div>';
 }
 
-var STAGE_LABELS=['Disq.','Ext. Positive','Reg. Fee','Partial Fee','Enrolled'];
+var STAGE_LABELS=['Reg. Fee','Partial Fee','Enrolled'];
 function hasStage(rows){return (rows||[]).some(function(r){return r&&r.stage;});}
-function sumStage(rows){return (rows||[]).reduce(function(acc,r){if(!r.stage)return acc;acc=acc||['','','','',''];return acc.map(function(a,i){return r.stage[i]===''?a:(a===''?0:a)+r.stage[i];});},null);}
+function sumStage(rows){return (rows||[]).reduce(function(acc,r){if(!r.stage)return acc;acc=acc||STAGE_LABELS.map(function(){return '';});return acc.map(function(a,i){return r.stage[i]===''?a:(a===''?0:a)+r.stage[i];});},null);}
 function stageThs(style){return STAGE_LABELS.map(function(l){return '<th'+(style?' style="'+style+'"':'')+'>'+l+'</th>';}).join('');}
 function stageTds(stage,style){return STAGE_LABELS.map(function(l,i){var v=stage?stage[i]:'';return '<td'+(style?' style="'+style+'"':'')+'>'+(v===''||v===null||v===undefined?'—':v)+'</td>';}).join('');}
 function mktTable(rows,title,showTotal){

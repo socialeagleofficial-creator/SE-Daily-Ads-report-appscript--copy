@@ -2,21 +2,25 @@
 // AddStageColumns.gs
 // Run ONCE: adds the Marketing Dashboard's Kylas Deals stage columns to OCTOBER 26.
 //
-//   Daily log (columns H–L, header row "Date | Course Name | …"):
-//     Disqualified | Extremely Positive | Reg. Fee Paid | Partial Fee Paid | Enrolled
-//     formatted like the Optin column, in every date block.
+//   Daily log (columns H–J, header row "Date | Course Name | …"):
+//     Reg. Fee Paid | Partial Fee Paid | Enrolled — formatted like the Optin column.
 //   Summary (next free columns after the Milestone Tracker, rows 1–2 = band + headers):
-//     Total Disqualified … Total Enrolled = SUMIFS over the daily log, one per campaign row.
+//     Total Reg. Fee Paid | Total Partial Fee Paid | Total Enrolled = SUMIFS over the log.
 //
-// AutoFill fills H–L every morning once the dashboard's sheet-results API sends the
-// counts (PR "sheet-results: include Kylas Deals stage counts per category").
-// setupNextMonth copies the layout into future months. Safe to re-run (skips if present).
+// If the earlier 5-column version (with Disqualified / Extremely Positive) was already
+// applied, this removes those two from the daily log and the summary — shifting cells
+// within those areas only, never deleting whole sheet columns — and rewrites the totals.
+//
+// AutoFill fills H–J every morning once the dashboard's sheet-results API sends the counts
+// (PR #2 "sheet-results: include Reg. Fee Paid / Partial Fee Paid / Enrolled per category").
+// setupNextMonth copies the layout into future months. Safe to re-run.
 // ══════════════════════════════════════════════════════════════════════════════
 
 var STAGE_COLS = {
   TAB: 'OCTOBER 26',
-  LOG_HEADERS: ['Disqualified', 'Extremely Positive', 'Reg. Fee Paid', 'Partial Fee Paid', 'Enrolled'],
-  BAND: 'Lead Quality & Conversions',
+  LOG_HEADERS: ['Reg. Fee Paid', 'Partial Fee Paid', 'Enrolled'],
+  DROP: ['Disqualified', 'Extremely Positive'],
+  BAND: 'Fee & Enrolment',
 };
 
 function addStageColumns() {
@@ -24,46 +28,78 @@ function addStageColumns() {
   var tab = ss.getSheetByName(STAGE_COLS.TAB);
   if (!tab) throw new Error(STAGE_COLS.TAB + ' not found');
   var n = STAGE_COLS.LOG_HEADERS.length;
-  var data = tab.getDataRange().getValues();
 
-  // ── Daily log ──────────────────────────────────────────────────────────────
-  var hdr = -1;
-  for (var i = 0; i < Math.min(30, data.length); i++) {
-    if (String(data[i][0]).trim().toLowerCase() === 'date' && String(data[i][1]).trim().toLowerCase() === 'course name') { hdr = i + 1; break; }
+  var hdr = stageLogHeaderRow(tab);
+  var last = tab.getLastRow();
+  var lastSumRow = stageLastSummaryRow(tab, hdr);
+
+  // ── Convert the earlier 5-column version, if present ───────────────────────
+  var logHead = tab.getRange(hdr, 8, 1, 2).getValues()[0].map(String);
+  if (logHead[0] === STAGE_COLS.DROP[0] && logHead[1] === STAGE_COLS.DROP[1]) {
+    tab.getRange(hdr, 8, last - hdr + 1, 2).deleteCells(SpreadsheetApp.Dimension.COLUMNS);   // H:I in the log only
+    Logger.log('✅ Daily log: removed ' + STAGE_COLS.DROP.join(' / ') + ' (rows ' + hdr + '–' + last + ').');
   }
-  if (hdr === -1) throw new Error('daily log header row not found');
+  var head2 = tab.getRange(2, 1, 1, tab.getLastColumn()).getValues()[0].map(function(x) { return String(x).trim(); });
+  var dropAt = head2.indexOf('Total ' + STAGE_COLS.DROP[0]);
+  if (dropAt !== -1 && head2[dropAt + 1] === 'Total ' + STAGE_COLS.DROP[1]) {
+    var bandStart = dropAt + 1;                                       // 1-based
+    tab.getRange(1, bandStart, 1, 5).breakApart();
+    tab.getRange(1, bandStart, lastSumRow, 2).deleteCells(SpreadsheetApp.Dimension.COLUMNS);  // summary block only
+    tab.getRange(1, bandStart, 1, n).merge().setValue(STAGE_COLS.BAND);
+    stageWriteTotals(tab, hdr, lastSumRow, bandStart, n);
+    Logger.log('✅ Summary: removed Total ' + STAGE_COLS.DROP.join(' / ') + '; totals rewritten.');
+  }
+
+  // ── Daily log: add H–J if missing ──────────────────────────────────────────
   if (String(tab.getRange(hdr, 8).getValue()).trim() === STAGE_COLS.LOG_HEADERS[0]) {
-    Logger.log('⏭ Daily log already has the stage columns.');
+    Logger.log('⏭ Daily log has ' + STAGE_COLS.LOG_HEADERS.join(', ') + ' in H–J.');
   } else {
-    var last = tab.getLastRow();
-    if (tab.getMaxColumns() < 12) tab.insertColumnsAfter(tab.getMaxColumns(), 12 - tab.getMaxColumns());
-    // Header + every log row: copy the Optin column's formatting into H–L
+    if (tab.getMaxColumns() < 7 + n) tab.insertColumnsAfter(tab.getMaxColumns(), 7 + n - tab.getMaxColumns());
     tab.getRange(hdr, 7, last - hdr + 1, 1).copyTo(tab.getRange(hdr, 8, last - hdr + 1, n), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
     tab.getRange(hdr, 8, 1, n).setValues([STAGE_COLS.LOG_HEADERS]).setWrap(true);
     for (var c = 0; c < n; c++) tab.setColumnWidth(8 + c, Math.max(tab.getColumnWidth(7), 110));
-    Logger.log('✅ Daily log: added ' + STAGE_COLS.LOG_HEADERS.join(', ') + ' in H–L (header row ' + hdr + ').');
+    Logger.log('✅ Daily log: added ' + STAGE_COLS.LOG_HEADERS.join(', ') + ' in H–J (header row ' + hdr + ').');
   }
 
-  // ── Summary totals ─────────────────────────────────────────────────────────
-  var head2 = tab.getRange(2, 1, 1, tab.getLastColumn()).getValues()[0].map(function(x) { return String(x).trim(); });
-  if (head2.indexOf('Total ' + STAGE_COLS.LOG_HEADERS[0]) !== -1) { Logger.log('⏭ Summary already has the stage totals.'); return; }
-  var lastSumRow = 2;
-  for (var r = 2; r < hdr - 1; r++) { if (String(data[r][0]).trim()) lastSumRow = r + 1; else break; }
-  var firstFree = 1;
-  head2.forEach(function(h, idx) { if (h) firstFree = idx + 2; });
-  var srcCol = firstFree - 1;                                  // last used summary column (Milestone)
-  var rows = lastSumRow - 1;                                   // band row 1 .. last campaign row
-  tab.getRange(1, srcCol, rows, 1).copyTo(tab.getRange(1, firstFree, rows, n), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-  tab.getRange(1, firstFree, 1, n).breakApart().merge().setValue(STAGE_COLS.BAND);
-  tab.getRange(2, firstFree, 1, n).setValues([STAGE_COLS.LOG_HEADERS.map(function(h) { return 'Total ' + h; })]).setWrap(true);
+  // ── Summary totals: add if missing ─────────────────────────────────────────
+  head2 = tab.getRange(2, 1, 1, tab.getLastColumn()).getValues()[0].map(function(x) { return String(x).trim(); });
+  if (head2.indexOf('Total ' + STAGE_COLS.LOG_HEADERS[0]) !== -1) {
+    Logger.log('⏭ Summary has the Total columns.');
+  } else {
+    var firstFree = 1;
+    head2.forEach(function(h, idx) { if (h) firstFree = idx + 2; });
+    tab.getRange(1, firstFree - 1, lastSumRow, 1).copyTo(tab.getRange(1, firstFree, lastSumRow, n), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    tab.getRange(1, firstFree, 1, n).breakApart().merge().setValue(STAGE_COLS.BAND);
+    stageWriteTotals(tab, hdr, lastSumRow, firstFree, n);
+    Logger.log('✅ Summary: added Total ' + STAGE_COLS.LOG_HEADERS.join(' / ') + ' from column ' + firstFree + ', rows 3–' + lastSumRow + '.');
+  }
+  SpreadsheetApp.flush();
+}
+
+function stageWriteTotals(tab, hdr, lastSumRow, startCol, n) {
+  tab.getRange(2, startCol, 1, n).setValues([STAGE_COLS.LOG_HEADERS.map(function(h) { return 'Total ' + h; })]).setWrap(true);
   var first = hdr + 1;
-  for (var r2 = 3; r2 <= lastSumRow; r2++) {
+  for (var r = 3; r <= lastSumRow; r++) {
     var f = [];
     for (var k = 0; k < n; k++) {
-      var L = String.fromCharCode(72 + k);   // H..L
-      f.push('=SUMIFS(' + L + '$' + first + ':' + L + ',$B$' + first + ':$B,$A' + r2 + ')');
+      var L = String.fromCharCode(72 + k);   // H, I, J
+      f.push('=SUMIFS(' + L + '$' + first + ':' + L + ',$B$' + first + ':$B,$A' + r + ')');
     }
-    tab.getRange(r2, firstFree, 1, n).setFormulas([f]).setNumberFormat('0');
+    tab.getRange(r, startCol, 1, n).setFormulas([f]).setNumberFormat('0');
   }
-  Logger.log('✅ Summary: added Total ' + STAGE_COLS.LOG_HEADERS.join(' / ') + ' in columns ' + firstFree + '–' + (firstFree + n - 1) + ', rows 3–' + lastSumRow + '.');
+}
+
+function stageLogHeaderRow(tab) {
+  var data = tab.getRange(1, 1, 30, 2).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim().toLowerCase() === 'date' && String(data[i][1]).trim().toLowerCase() === 'course name') return i + 1;
+  }
+  throw new Error('daily log header row not found');
+}
+
+function stageLastSummaryRow(tab, hdr) {
+  var a = tab.getRange(1, 1, hdr, 1).getValues();
+  var last = 2;
+  for (var r = 2; r < hdr - 1; r++) { if (String(a[r][0]).trim()) last = r + 1; else break; }
+  return last;
 }
