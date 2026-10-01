@@ -94,17 +94,18 @@ var MKDB_ALIASES = {
 };
 
 // Match the Marketing Dashboard's per-course rules (src/lib/kpi/category.ts):
-//  - DM Direct Calls: Meta's own lead count (Windsor actions_lead) is shown as Opt-ins, Result "—"
+//  - DM Direct Calls: Meta's "Call placed" count (Windsor actions_click_to_call_native_call_placed —
+//    Calls-objective ads never fire the Lead action) is shown as Opt-ins, Result "—"
 //  - Opt-in-only courses: Result "—" on the dashboard (MK DB still returns result = optins), so 0 here
-var OPTIN_FROM_META_LEADS = ['DM DIRECT CALLS'];
+var OPTIN_FROM_META_CALLS = ['DM DIRECT CALLS'];
 var RESULTS_NOT_APPLICABLE = [
   'DM FORMS', 'DM WEBSITE VISIT', 'AI WEBSITE VISIT', 'SOS FORMS', 'AI MINDSET WEBINAR', 'DM DIRECT CALLS',
 ];
 
 function applyDashboardRules(courseData) {
-  OPTIN_FROM_META_LEADS.forEach(function(course) {
+  OPTIN_FROM_META_CALLS.forEach(function(course) {
     var d = courseData[course];
-    if (d && !d.optin) d.optin = d.metaLeads || 0;
+    if (d && !d.optin) d.optin = d.metaCallsPlaced || 0;
   });
   RESULTS_NOT_APPLICABLE.forEach(function(course) {
     if (courseData[course]) courseData[course].results = 0;
@@ -471,7 +472,7 @@ function setupResyncTrigger() {
 function fetchWindsorWithRetry(dateStr, maxAttempts) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('WINDSOR_API_KEY');
   if (!apiKey) { Logger.log('ERROR: WINDSOR_API_KEY not set.'); return null; }
-  var fields = 'date,account_id,campaign,campaign_objective,spend,actions_lead,actions_purchase';
+  var fields = 'date,account_id,campaign,campaign_objective,spend,actions_lead,actions_purchase,actions_click_to_call_native_call_placed';
   var accountsParam = CONFIG.WINDSOR_ACCOUNTS.join(',');
   var url = CONFIG.WINDSOR_BASE_URL
     + '?api_key='    + apiKey
@@ -507,9 +508,10 @@ function aggregateByCourse(rows) {
     var info = getCourseInfo((row.campaign || '').toString().trim());
     if (!info) return;
     var course = info.course;
-    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0, metaLeads: 0, metaPurchases: 0 };
+    if (!totals[course]) totals[course] = { spend: 0, optin: 0, results: 0, metaLeads: 0, metaPurchases: 0, metaCallsPlaced: 0 };
     totals[course].spend         += parseFloat(row.spend) || 0;
-    totals[course].metaLeads     += parseFloat(row.actions_lead) || 0;
+    totals[course].metaLeads       += parseFloat(row.actions_lead) || 0;
+    totals[course].metaCallsPlaced += parseFloat(row.actions_click_to_call_native_call_placed) || 0;
     totals[course].metaPurchases += parseFloat(row.actions_purchase) || 0;
   });
   return totals;
