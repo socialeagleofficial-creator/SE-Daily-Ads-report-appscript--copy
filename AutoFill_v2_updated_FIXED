@@ -423,11 +423,6 @@ function hwFindRow(sheet, dispDate, tz) {
   return null;
 }
 
-// One-off: fill DM HW PAID results for 22–27 Sep 2026
-function fillHwResults22to27Sep() {
-  fillHwResults('2026-09-22', '2026-09-27');
-}
-
 // ── DAILY 7-DAY RE-SYNC ───────────────────────────────────────────────────────
 // The Marketing Dashboard re-imports the last 7 days of Kylas data every morning (6 AM IST),
 // so results for recent days keep changing after morningRun has written them. This refills

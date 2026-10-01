@@ -24,14 +24,6 @@ function auditMissingValues()   { auditRange(AUDIT_FROM, auditYesterday(), 'audi
 function fillMissingValues()    { auditRange(AUDIT_FROM, auditYesterday(), 'fill');  }
 function matchDashboardValues() { auditRange(AUDIT_FROM, auditYesterday(), 'match'); }
 
-// SOS Call Booking / SOS Forms rows for 1–21 Sep 2026: the old AutoFill wrote 0 there
-// (mixed-case course key bug). Fills only 0/blank cells in those two rows.
-function fillSosSeptember() { auditRange('2026-09-01', '2026-09-21', 'fill', /^SOS (CALL BOOKING|FORMS)$/i); }
-
-// 1–16 Sep 2026: the old AutoFill put all non-Masterclass SOS spend (incl. Leads Form) into the
-// SOS Call Booking row. Replaces ONLY those Spend cells with Windsor's SOS Call Booking spend.
-function fixSosCallBookingSpendSeptember() { auditRange('2026-09-01', '2026-09-16', 'matchSpend', /^SOS CALL BOOKING$/i); }
-
 function auditYesterday() {
   var d = new Date(); d.setDate(d.getDate() - 1);
   return fmtDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
